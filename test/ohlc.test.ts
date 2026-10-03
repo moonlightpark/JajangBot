@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { applyLiveMid, barsForView, fillMarks, M15_MS } from "../web/src/lib/ohlc";
+import { applyLiveMid, barsForView, canUpdateInPlace, fillMarks, M15_MS } from "../web/src/lib/ohlc";
 import type { PricePoint } from "../src/types";
 
 test("barsForView reads 1m ohlc and rolls them into 15m", () => {
@@ -94,4 +94,18 @@ test("applyLiveMid updates the forming 1s, 1m and 15m bars", () => {
   expect(rolled.find((p) => p.bar === "1m" && p.ts === 60_000)).toMatchObject({
     open: 102, high: 98, low: 98, close: 98,
   });
+});
+
+test("canUpdateInPlace only allows appending or rewriting the newest bar", () => {
+  const shown = { key: "BTC:5m", stem: "1000", count: 80, lastTime: 6000 };
+  expect(canUpdateInPlace(shown, { ...shown })).toBe(true);
+  expect(canUpdateInPlace(shown, { ...shown, count: 81, lastTime: 6300 })).toBe(true);
+  // 5m -> 1m keeps the first bar but changes the view: redraw.
+  expect(canUpdateInPlace(shown, { ...shown, key: "BTC:1m", count: 400, lastTime: 6240 })).toBe(false);
+  // Same view, last bar earlier than what the chart holds: the "Cannot update oldest data" case.
+  expect(canUpdateInPlace(shown, { ...shown, lastTime: 5700 })).toBe(false);
+  // Two bars at once or a shrinking series: redraw so no bar is skipped.
+  expect(canUpdateInPlace(shown, { ...shown, count: 82, lastTime: 6600 })).toBe(false);
+  expect(canUpdateInPlace(shown, { ...shown, count: 79 })).toBe(false);
+  expect(canUpdateInPlace(shown, { ...shown, stem: "900" })).toBe(false);
 });

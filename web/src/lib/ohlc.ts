@@ -169,3 +169,26 @@ export function applyLiveMid(tape: PricePoint[], mid: number, ts: number): Price
   if (!(mid > 0) || !(ts > 0)) return tape;
   return upsertBar(upsertBar(upsertBar(tape, mid, ts, "1s"), mid, ts, "1m"), mid, ts, "15m");
 }
+
+/** What a chart series currently holds. */
+export interface SeriesShown {
+  key: string;
+  stem: string;
+  count: number;
+  lastTime: number;
+}
+
+/**
+ * True when `series.update(last)` is safe: same view, same first bar, at most one new
+ * bar, and the last bar did not move back in time. lightweight-charts throws
+ * "Cannot update oldest data" otherwise, e.g. on a 5m to 1m switch that keeps the first bar.
+ */
+export function canUpdateInPlace(prev: SeriesShown, next: SeriesShown): boolean {
+  return (
+    prev.stem === next.stem &&
+    prev.key === next.key &&
+    next.count >= prev.count &&
+    next.count <= prev.count + 1 &&
+    next.lastTime >= prev.lastTime
+  );
+}

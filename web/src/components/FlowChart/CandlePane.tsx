@@ -18,7 +18,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import type { Candle, FillMark } from "@/lib/ohlc";
+import { canUpdateInPlace, type Candle, type FillMark, type SeriesShown } from "@/lib/ohlc";
 import type { StrategyLevels } from "@/lib/types";
 
 export type EntryLine = {
@@ -102,6 +102,8 @@ export default function CandlePane({
   const levelsRef = useRef<{ levels: StrategyLevels | null; fit: boolean }>({ levels: null, fit: false });
   levelsRef.current = { levels, fit: fitLevels };
   const stemRef = useRef("");
+  /** What the series holds now, so an incremental update is only used when it is safe. */
+  const shownRef = useRef<SeriesShown>({ key: "", stem: "", count: 0, lastTime: 0 });
   const rangeRef = useRef("");
   const formatRef = useRef(formatPrice);
   formatRef.current = formatPrice;
@@ -172,6 +174,7 @@ export default function CandlePane({
       longLineRef.current = null;
       shortLineRef.current = null;
       stemRef.current = "";
+      shownRef.current = { key: "", stem: "", count: 0, lastTime: 0 };
       rangeRef.current = "";
     };
   }, []);
@@ -188,15 +191,20 @@ export default function CandlePane({
     if (!bars.length) {
       series.setData([]);
       stemRef.current = stem;
+      shownRef.current = { key: rangeKey, stem, count: 0, lastTime: 0 };
       return;
     }
     const stemChanged = stemRef.current !== stem;
-    if (!stemChanged && stem) {
-      series.update(bars[bars.length - 1]!);
+    const last = bars[bars.length - 1]!;
+    const next: SeriesShown = { key: rangeKey, stem, count: bars.length, lastTime: last.time as number };
+    // update() only appends or rewrites the newest bar; anything else is a full redraw.
+    if (canUpdateInPlace(shownRef.current, next)) {
+      series.update(last);
     } else {
       series.setData(bars);
       stemRef.current = stem;
     }
+    shownRef.current = next;
     if (rangeRef.current !== rangeKey || stemChanged) {
       rangeRef.current = rangeKey;
       showLatest(chartRef.current, bars.length, visibleBars);
