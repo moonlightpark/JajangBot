@@ -1,0 +1,9 @@
+# Secrets: private keys and API keys. Never commit these.
+.env
+.env.*
+!.env.example
+.bybit-keys.json
+
+node_modules
+*.log
+.DS_Store

@@ -1,0 +1,31 @@
+{
+  "name": "jev-trade",
+  "module": "src/index.ts",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://www.jev-trade.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aowang-ai/jev-trade.git"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@ai-sdk/gateway": "^4.0.85",
+    "@typesafe-ai/sdk": "^0.6.0",
+    "ai": "^7.0.105"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch run src/index.ts",
+    "dev:web": "bun run --cwd web dev",
+    "test": "bun test test"
+  }
+}
