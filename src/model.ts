@@ -3,7 +3,7 @@ import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { assertJevCredentials, config } from "./config";
 import { leverageRungs, liveIntent, parseLeverage, quoteAction, type Bias, type Intent } from "./plan";
 import type { Ohlc } from "./chart";
-import { magingaDecision, withLiveBar } from "./strategy";
+import { MAGINGA, magingaDecision, withLiveBar } from "./strategy";
 import type { Action, Side, StrategyLevels } from "./types";
 
 /** What the model sees. Compact, relative, human-readable. */
@@ -411,8 +411,6 @@ export class MockModel implements Model {
   }
 }
 
-const PERIOD_MS = { "1m": 60_000, "15m": 15 * 60_000 } as const;
-
 /**
  * User strategy: the TradingView "[GaYang] Maginga 15Ho" channel rules (src/strategy.ts).
  * Code makes the call here, not Jev. Runs every tick on the forming bar.
@@ -422,22 +420,22 @@ export class StrategyModel implements Model {
   private lastReason = "";
 
   constructor(
-    private bars: (tf: "1m" | "15m") => Ohlc[],
-    private timeframe: "1m" | "15m" = config.strategyTimeframe,
+    /** 15m candles, oldest first. */
+    private bars: () => Ohlc[],
     private leverage: number = config.strategyLeverage,
     private now: () => number = Date.now,
   ) {}
 
   async decide(state: TradeState): Promise<ModelDecision> {
     const t0 = performance.now();
-    const bars = withLiveBar(this.bars(this.timeframe), state.mid, this.now(), PERIOD_MS[this.timeframe]);
+    const bars = withLiveBar(this.bars(), state.mid, this.now(), MAGINGA.periodMs);
     const call = magingaDecision(bars, state.position.side);
     const intent = liveIntent(state.position.side, call.intent);
     if (call.reason !== this.lastReason) {
       this.lastReason = call.reason;
       const l = call.lines;
       const band = l ? ` (long < ${l.longLine.toFixed(6)}, short > ${l.shortLine.toFixed(6)})` : "";
-      console.log(`${state.coin} strategy ${this.timeframe}: ${call.reason}${band}`);
+      console.log(`${state.coin} strategy ${MAGINGA.timeframe}: ${call.reason}${band}`);
     }
     const decision = pack({
       intent,
@@ -452,7 +450,7 @@ export class StrategyModel implements Model {
       latencyMs: performance.now() - t0,
       inputTokens: 0,
     });
-    if (call.lines) decision.levels = { long: call.lines.longLine, short: call.lines.shortLine, timeframe: this.timeframe };
+    if (call.lines) decision.levels = { long: call.lines.longLine, short: call.lines.shortLine, timeframe: MAGINGA.timeframe };
     return decision;
   }
 }
@@ -461,7 +459,7 @@ export class StrategyModel implements Model {
 export const createModel = (market?: { bars(bar: "1m" | "15m"): Ohlc[] }): Model => {
   if (config.model === "strategy") {
     if (!market) throw new Error("MODEL=strategy needs the market's candles");
-    return new StrategyModel((tf) => market.bars(tf));
+    return new StrategyModel(() => market.bars("15m"));
   }
   if (config.model !== "jev") return new MockModel();
   assertJevCredentials(config.model, config.jevProvider, process.env);

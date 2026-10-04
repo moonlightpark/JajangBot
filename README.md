@@ -142,6 +142,8 @@ bun run dev:web
 
 TradingView 파인 스크립트 "[GaYang] Maginga 15Ho - v5.4"에서 **실제로 주문을 내는 규칙만** 옮겼습니다(`src/strategy.ts`).
 
+**15분봉 기준으로만 동작합니다.** 다른 시간봉(1m, 5m, 1H 등)은 전략에 쓰지 않습니다.
+
 - 채널: `EMA(high, 125)`와 `EMA(low, 125)`
 - 숏 라인: `EMA(high) × 1.01618`, 롱 라인: `EMA(low) × (1 - 0.01619)`
 - 포지션이 없을 때
@@ -152,18 +154,18 @@ TradingView 파인 스크립트 "[GaYang] Maginga 15Ho - v5.4"에서 **실제로
 
 ```sh
 MODEL=strategy
-STRATEGY_TIMEFRAME=15m   # 15m(기본값) 또는 1m
 STRATEGY_LEVERAGE=3      # 원본 스크립트 라벨의 "Leverage x3"
 ```
 
 **원본과 다른 점, 알아둘 점**
 
-- **판단 시점**: 원본은 봉이 마감될 때 판단합니다(TradingView 기본값). 이 봇은 매 틱(`TICK_MS`)마다, 형성 중인 봉에 현재가를 반영해 판단합니다(TradingView의 `calc_on_every_tick`과 같음). 봉 중간에 라인을 찍고 돌아오면 원본에서는 신호가 없지만 여기서는 진입합니다.
+- **판단 시점**: 원본은 봉이 마감될 때 판단합니다(TradingView 기본값). 이 봇은 매 틱(`TICK_MS`)마다, 형성 중인 15분봉에 현재가를 반영해 판단합니다(TradingView의 `calc_on_every_tick`과 같음). 봉 중간에 라인을 찍고 돌아오면 원본에서는 신호가 없지만 여기서는 진입합니다.
 - **빠진 계산**: Squeeze Momentum, CMF, DEMA, 2차 라인(3.82%), 손절과 목표가는 원본에서 계산만 하고 주문 조건에 쓰이지 않아 옮기지 않았습니다.
 - **손절이 없습니다**: 원본 그대로, 포지션은 반대쪽 라인에 닿아야만 청산됩니다. `MAX_LEVERAGE`를 꼭 설정하세요.
 - **주문 크기**: 원본의 `qty = 1`(1코인) 대신 `QUOTE_USD`(Bybit 최소 수량 이상)로 주문합니다.
 - **주문 방식**: 원본은 시장가로 진입하지만, 이 봇은 진입을 PostOnly 지정가로 걸어 둡니다. 가격이 빠르게 지나가면 체결되지 않을 수 있고, 신호가 사라지면 주문을 취소합니다.
 - **시작 직후**: EMA 계산에 봉 125개가 필요합니다. 시작할 때 Bybit에서 캔들 1000개를 불러오므로 바로 판단합니다.
+- **차트 표시**: 대시보드 차트를 **15m으로 볼 때만** 숏 라인(빨간 점선)과 롱 라인(초록 점선)이 표시됩니다. 다른 주기 화면에서는 표시하지 않습니다.
 - 봇 로그에 판단 이유가 바뀔 때마다 `BTC strategy 15m: inside the channel (long < ..., short > ...)`처럼 현재 라인 값이 출력됩니다.
 
 ## 실제 Jev 사용
@@ -227,7 +229,6 @@ MAX_LEVERAGE=5
 | `BYBIT_KEYS_JSON` | 비어 있음 | 나머지 코인의 키(`.bybit-keys.json`과 같은 형식) |
 | `DRY_RUN` | `false` | `true`면 모든 슬리브를 시뮬레이션 |
 | `MODEL` | `mock` | `mock`, `jev`, `strategy`. `jev`는 TypeSafe 또는 Gateway 키 필요 |
-| `STRATEGY_TIMEFRAME` | `15m` | `MODEL=strategy`의 캔들. `15m` 또는 `1m` |
 | `STRATEGY_LEVERAGE` | `3` | `MODEL=strategy`의 진입 레버리지 |
 | `JEV_PROVIDER` | `typesafe` | `typesafe` 또는 `gateway` |
 | `TYPESAFE_API_KEY` | 비어 있음 | 공식 TypeSafe 키 |

@@ -1,23 +1,23 @@
 import { expect, test } from "bun:test";
 import type { Ohlc } from "../src/chart";
-import { resolveModel, resolveTimeframe } from "../src/config";
+import { resolveModel } from "../src/config";
 import { StrategyModel, type TradeState } from "../src/model";
 import { emaSeries, MAGINGA, magingaDecision, magingaLines, withLiveBar } from "../src/strategy";
 
 const M = 60_000;
-/** n flat bars at `px` with a 0.2% high/low wick. */
-const flat = (n: number, px = 100): Ohlc[] =>
-  Array.from({ length: n }, (_, i) => ({ ts: i * M, open: px, high: px * 1.002, low: px * 0.998, close: px }));
+const Q = 15 * M;
+/** n flat bars at `px` with a 0.2% high/low wick, `step` apart (1m by default). */
+const flat = (n: number, px = 100, step = M): Ohlc[] =>
+  Array.from({ length: n }, (_, i) => ({ ts: i * step, open: px, high: px * 1.002, low: px * 0.998, close: px }));
 const withLast = (bars: Ohlc[], last: Partial<Ohlc>): Ohlc[] => [...bars.slice(0, -1), { ...bars.at(-1)!, ...last }];
 
-test("MODEL accepts mock, jev, strategy; timeframe 1m or 15m", () => {
+test("MODEL accepts mock, jev, strategy; the strategy runs on 15m only", () => {
   expect(resolveModel(undefined)).toBe("mock");
   expect(resolveModel("Strategy")).toBe("strategy");
   expect(resolveModel("jev")).toBe("jev");
   expect(() => resolveModel("pine")).toThrow();
-  expect(resolveTimeframe(undefined)).toBe("15m");
-  expect(resolveTimeframe("1m")).toBe("1m");
-  expect(() => resolveTimeframe("5m")).toThrow();
+  expect(MAGINGA.timeframe).toBe("15m");
+  expect(MAGINGA.periodMs).toBe(15 * 60_000);
 });
 
 test("emaSeries matches Pine: SMA seed, then alpha = 2/(len+1)", () => {
@@ -82,8 +82,8 @@ const state = (mid: number, side: "long" | "short" | "flat"): TradeState => ({
 } as TradeState);
 
 test("StrategyModel decides every tick from the live price, at the strategy leverage", async () => {
-  const bars = flat(200);
-  const m = new StrategyModel(() => bars, "1m", 3, () => 199 * M + 1_000);
+  const bars = flat(200, 100, Q);
+  const m = new StrategyModel(() => bars, 3, () => 199 * Q + 1_000);
   const spike = await m.decide(state(102, "flat"));
   expect(spike).toMatchObject({ action: "sell", intent: "open", bias: "short", leverage: 3 });
   const calm = await m.decide(state(100, "flat"));
@@ -93,11 +93,11 @@ test("StrategyModel decides every tick from the live price, at the strategy leve
 });
 
 test("StrategyModel reports the channel lines so the chart can draw them", async () => {
-  const m = new StrategyModel(() => flat(200), "15m", 3, () => 199 * M + 1_000);
+  const m = new StrategyModel(() => flat(200, 100, Q), 3, () => 199 * Q + 1_000);
   const d = await m.decide(state(100, "flat"));
   expect(d.levels!.timeframe).toBe("15m");
   expect(d.levels!.short).toBeGreaterThan(100);
   expect(d.levels!.long).toBeLessThan(100);
-  const warm = await new StrategyModel(() => flat(10), "15m", 3, () => 9 * M).decide(state(100, "flat"));
+  const warm = await new StrategyModel(() => flat(10, 100, Q), 3, () => 9 * Q).decide(state(100, "flat"));
   expect(warm.levels).toBeUndefined();
 });

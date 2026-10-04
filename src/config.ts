@@ -53,13 +53,6 @@ export function resolveModel(raw?: string): ModelName {
   throw new Error("MODEL must be mock, jev, or strategy");
 }
 
-export function resolveTimeframe(raw?: string): "1m" | "15m" {
-  const v = (raw ?? "").trim().toLowerCase();
-  if (!v || v === "15m") return "15m";
-  if (v === "1m") return "1m";
-  throw new Error("STRATEGY_TIMEFRAME must be 1m or 15m");
-}
-
 export function resolveBybitEnv(raw?: string): BybitEnv {
   const v = (raw ?? "").trim().toLowerCase();
   if (!v || v === "demo") return "demo";
@@ -92,8 +85,6 @@ export const config = {
   maxLeverage: cap("MAX_LEVERAGE"),
   horizonBlocks: Number(env("HORIZON_BLOCKS", "100")),
   model: resolveModel(env("MODEL")),
-  /** MODEL=strategy: candle timeframe the TradingView strategy runs on. */
-  strategyTimeframe: resolveTimeframe(env("STRATEGY_TIMEFRAME")),
   /** MODEL=strategy: leverage for entries. The script's labels say x3. */
   strategyLeverage: Math.max(1, Number(env("STRATEGY_LEVERAGE", "3")) || 3),
   /** typesafe = official TypeSafe API. gateway = Vercel AI Gateway. */

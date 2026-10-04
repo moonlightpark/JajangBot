@@ -74,12 +74,14 @@ export default function FlowChart({
     pos && pos.side !== "flat" && pos.entryPrice != null && pos.entryPrice > 0
       ? { price: pos.entryPrice, side: pos.side }
       : null;
+  // The strategy runs on 15m candles, so its lines only show on the 15m view.
   // A late tick carries no levels, so keep the last lines the strategy reported.
   const levels = useMemo(() => {
+    if (interval !== "15m") return null;
     if (latest?.levels) return latest.levels;
     for (let i = events.length - 1; i >= 0; i--) if (events[i]?.levels) return events[i]!.levels!;
     return null;
-  }, [latest, events]);
+  }, [latest, events, interval]);
 
   return (
     <div className={styles.wrap}>
@@ -111,7 +113,7 @@ export default function FlowChart({
               marks={model.marks}
               entry={entry}
               levels={levels}
-              fitLevels={interval !== "1s"}
+              fitLevels={levels != null}
               rangeKey={`${coin}:${interval}`}
               visibleBars={VISIBLE_BARS}
               secondsVisible={interval === "1s"}

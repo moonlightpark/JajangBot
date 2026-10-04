@@ -32,7 +32,7 @@ type Props = {
   entry: EntryLine | null;
   /** MODEL=strategy channel: dashed long (green) and short (red) lines. */
   levels: StrategyLevels | null;
-  /** Stretch the price scale so the lines stay on screen. Off for 1s bars, where they would flatten the candles. */
+  /** Stretch the price scale so the lines stay on screen. */
   fitLevels: boolean;
   rangeKey: string;
   visibleBars: number;

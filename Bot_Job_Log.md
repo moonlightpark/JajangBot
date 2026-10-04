@@ -9,7 +9,7 @@
 | 키 | 코인별 서브계정 키. 없으면 그 코인은 dry run |
 | 리스크 한도 | `MAX_POSITION_USD`, `MAX_LEVERAGE` (기본은 한도 없음) |
 | 대시보드 상단 | Live / Testnet / Demo / Dry run을 `.env` 기준으로 표시 |
-| 판단 방식 | `MODEL=mock` / `jev` / `strategy`(TradingView Maginga 15Ho 채널 규칙, 11번) |
+| 판단 방식 | `MODEL=mock` / `jev` / `strategy`(TradingView Maginga 15Ho 채널 규칙, 15분봉 전용, 11번과 16번) |
 | 테스트 | `bun test` 83개 통과 |
 | 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 최신 푸시 `72cc239`) |
 | 미검증 | 실제 키로 주문하는 경로 (아래 "남은 작업" 참고) |
@@ -31,6 +31,7 @@
 13. GitHub 저장소에 커밋, 푸시
 14. 차트 오류 수정: "Cannot update oldest data"
 15. 차트 오류 수정분 커밋, 푸시
+16. strategy를 15분봉 전용으로 고정, 전략 라인은 15m 차트에서만 표시
 
 각 항목은 작업한 시점의 기록입니다. 이후 작업으로 바뀐 내용(예: 1~7번의 Hyperliquid 관련 설명)은 9번에서 정리했습니다.
 
@@ -401,6 +402,33 @@ README.md 전체를 한글로 다시 작성했습니다. 기존 내용에 더해
   - 작업 기록: `Bot_Job_Log.md`(13번, 14번)
 - 커밋 전 `bun test` 83개 통과
 - 이 기록(15번)은 별도의 작업 기록 커밋 "Log the chart fix push in Bot_Job_Log.md"로 푸시했습니다.
+
+### 16. strategy를 15분봉 전용으로 고정
+
+**요청**: strategy 전략은 15분봉 기준으로 실행하고, 다른 시간봉은 전략에 쓰지 않습니다.
+
+**사용자 확인 사항**
+
+- 판단 시점: 지금처럼 매 틱 판단합니다. 형성 중인 15분봉에 현재가를 반영합니다.
+- 차트의 전략 라인은 15m 화면에서만 표시합니다.
+
+**변경**
+
+- `src/strategy.ts`: `MAGINGA.timeframe = "15m"`, `MAGINGA.periodMs`(15분)를 추가했습니다.
+- `src/model.ts`: `StrategyModel`이 시간봉 인자 없이 15분 캔들만 받습니다. `createModel`은 `market.bars("15m")`만 전달합니다.
+- `src/config.ts`: `STRATEGY_TIMEFRAME` 설정과 `resolveTimeframe`을 삭제했습니다. 1m을 선택하는 방법은 더 이상 없습니다.
+- `src/index.ts`: 시작 로그를 `model=strategy 15m 3x`로 고정했습니다.
+- `web/src/components/FlowChart/FlowChart.tsx`: 차트 주기가 15m일 때만 전략 라인을 전달합니다. 가격 축 확장도 라인이 있을 때만 합니다. 그 결과 5m 등에서 캔들이 납작해지던 현상이 없어졌습니다.
+- `.env`, `.env.example`: `STRATEGY_TIMEFRAME`을 삭제하고, 주석에 "15분봉 기준"을 명시했습니다.
+- README: "15분봉 기준으로만 동작" 문구와 차트 표시 설명(15m에서만)을 추가했습니다. 환경 변수 표에서 `STRATEGY_TIMEFRAME`을 지웠습니다.
+
+**검증**
+
+- `test/strategy.test.ts`: 시간봉 설정 테스트를 `MAGINGA.timeframe`과 `periodMs` 확인으로 바꾸고, 모델 테스트를 15분 간격 봉으로 바꿨습니다. `bun test` 83개 통과, 대시보드 타입 검사 통과, 봇의 기존 타입 오류 5개 외에 새 오류 없음.
+- 브라우저(실행 중인 strategy 봇):
+  - 5m: 라인이 없고 캔들이 정상 높이로 표시됩니다.
+  - 15m: short 86,197.6(빨강), long 83,364.4(초록)가 표시됩니다.
+  - 다시 5m: 라인이 사라집니다. 콘솔 오류는 없었습니다.
 
 ## 남은 작업
 

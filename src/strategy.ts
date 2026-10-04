@@ -21,6 +21,9 @@ import type { Bias, Intent } from "./plan";
  * closes when price reaches the opposite band.
  */
 export const MAGINGA = {
+  /** The strategy runs on 15m candles only. Other timeframes are not used. */
+  timeframe: "15m",
+  periodMs: 15 * 60_000,
   emaLen: 125,
   shortBand: 0.01618,
   longBand: 0.01619,
