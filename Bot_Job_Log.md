@@ -11,6 +11,7 @@
 | 대시보드 상단 | Live / Testnet / Demo / Dry run을 `.env` 기준으로 표시 |
 | 판단 방식 | `MODEL=mock` / `jev` / `strategy`(TradingView Maginga 15Ho 채널 규칙, 11번) |
 | 테스트 | `bun test` 83개 통과 |
+| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 최신 푸시 `72cc239`) |
 | 미검증 | 실제 키로 주문하는 경로 (아래 "남은 작업" 참고) |
 
 ## 작업 목록
@@ -29,6 +30,7 @@
 12. 전략 채널 라인(long / short)을 차트에 표시
 13. GitHub 저장소에 커밋, 푸시
 14. 차트 오류 수정: "Cannot update oldest data"
+15. 차트 오류 수정분 커밋, 푸시
 
 각 항목은 작업한 시점의 기록입니다. 이후 작업으로 바뀐 내용(예: 1~7번의 Hyperliquid 관련 설명)은 9번에서 정리했습니다.
 
@@ -369,7 +371,7 @@ README.md 전체를 한글로 다시 작성했습니다. 기존 내용에 더해
   - `.env`, `web/.env.local`, `.bybit-keys.json`, `node_modules`, `.next`는 들어가지 않았습니다.
   - diff에 API 키 형태의 값이 없었습니다.
   - `bun test` 82개 통과
-- 이 기록(13번)은 커밋 이후에 추가했기 때문에 아직 커밋되지 않았습니다.
+- 이 기록(13번)은 커밋 이후에 추가해서, 15번의 두 번째 커밋 `72cc239`에 포함되었습니다.
 
 ### 14. 차트 오류 수정: "Cannot update oldest data"
 
@@ -389,6 +391,16 @@ README.md 전체를 한글로 다시 작성했습니다. 기존 내용에 더해
   - `test/ohlc.test.ts`에 테스트를 추가했습니다(주기 전환, 시각 역행, 2개 추가, 감소, 첫 봉 변경). `bun test` 83개 통과, 대시보드 타입 검사 통과.
   - 브라우저: 1m, 5m, 1m, 1H, 15m, 1s, 1m 순서로 전환하는 동안 콘솔 오류가 없었습니다.
   - 원래 오류는 첫 봉 정렬이 맞을 때만 나기 때문에, 브라우저에서 같은 상황을 재현했다고 확인할 수는 없습니다. 해당 조건은 단위 테스트로 직접 검증했습니다.
+
+### 15. 차트 오류 수정분 커밋, 푸시
+
+- 커밋 `72cc239` "Fix "Cannot update oldest data" when switching chart intervals"를 `origin/main`에 푸시했습니다(`f2a0286..72cc239`).
+- 포함한 파일은 4개입니다.
+  - 차트 오류 수정: `web/src/components/FlowChart/CandlePane.tsx`, `web/src/lib/ohlc.ts`
+  - 테스트: `test/ohlc.test.ts`
+  - 작업 기록: `Bot_Job_Log.md`(13번, 14번)
+- 커밋 전 `bun test` 83개 통과
+- 이 기록(15번)은 별도의 작업 기록 커밋 "Log the chart fix push in Bot_Job_Log.md"로 푸시했습니다.
 
 ## 남은 작업
 
