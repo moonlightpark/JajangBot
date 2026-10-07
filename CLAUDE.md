@@ -26,6 +26,14 @@ bun run dev:web
 
 Next.js App Router. SSE client in `web/src/lib/useFeed.ts`. Wire types are `src/types.ts`. The dashboard keeps a copy in `web/src/lib/bot-types.ts` so the Vercel build does not need the repo root. Keep those two files identical. `bun test` diffs them.
 
+## Session handoff
+
+Work continues across sessions through `Bot_Job_Log.md` (Korean).
+
+- At the start of a session, read its top section "다음 작업 시작하기" and the "남은 작업" list at the bottom before changing anything.
+- After each task, add a numbered entry under today's date, and update the top section (현재 상태, 알려진 문제) and "남은 작업" so the next session can pick up from there.
+- Talk to the user in Korean. Commit and push to `origin` (github.com/moonlightpark/JajangBot, `main`) only when the user asks.
+
 ## Testing
 
 Tests live in `test/`, not next to `src/`.

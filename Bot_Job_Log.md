@@ -1,18 +1,99 @@
 # Bot 작업 로그
 
-## 현재 상태 (2026-10-04 기준)
+## 다음 작업 시작하기 (인수인계, 2026-10-07 기준)
+
+이 섹션만 읽으면 이어서 작업할 수 있게 정리했습니다. 작업이 끝날 때마다 이 섹션과 아래 작업 기록을 함께 갱신합니다.
+
+### 새 세션에서 처음 할 일
+
+1. 이 파일(`Bot_Job_Log.md`)의 이 섹션과 맨 아래 "남은 작업"을 읽습니다. CLAUDE.md에도 같은 안내가 있습니다.
+2. 상태를 확인합니다.
+   ```sh
+   git log --oneline -5      # 최신 커밋: "Add session handoff to Bot_Job_Log.md and CLAUDE.md" (18번)
+   git status                # 커밋 안 된 변경 확인
+   bun test                  # 83개 통과가 정상
+   ```
+3. 실행합니다(터미널 2개).
+   ```sh
+   bun run start             # 봇 http://localhost:3000
+   bun run dev:web           # 대시보드 http://localhost:3001
+   ```
+   포트가 사용 중이면 `lsof -nP -iTCP:3000 -sTCP:LISTEN`으로 확인합니다.
+
+### 현재 상태
 
 | 항목 | 상태 |
 | --- | --- |
 | 거래소 | Bybit USDT 무기한 선물만 지원 (Hyperliquid 제거, 9번) |
 | 기본 환경 | `BYBIT_ENV=demo` (메인넷 시세, 가상 자금) |
-| 키 | 코인별 서브계정 키. 없으면 그 코인은 dry run |
-| 리스크 한도 | `MAX_POSITION_USD`, `MAX_LEVERAGE` (기본은 한도 없음) |
-| 대시보드 상단 | Live / Testnet / Demo / Dry run을 `.env` 기준으로 표시 |
-| 판단 방식 | `MODEL=mock` / `jev` / `strategy`(TradingView Maginga 15Ho 채널 규칙, 15분봉 전용, 11번과 16번) |
-| 테스트 | `bun test` 83개 통과 |
-| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 최신 푸시 `72cc239`) |
-| 미검증 | 실제 키로 주문하는 경로 (아래 "남은 작업" 참고) |
+| 키 | 코인별 서브계정 키. 없으면 그 코인은 dry run. 지금은 키가 없어 전부 dry run |
+| 판단 방식 | `MODEL=mock` / `jev` / `strategy`. strategy는 TradingView Maginga 15Ho 채널 규칙, 15분봉 전용, 매 틱 판단 (11번, 16번) |
+| 리스크 한도 | `MAX_POSITION_USD`, `MAX_LEVERAGE` (비우면 한도 없음) |
+| 대시보드 | 상단에 거래 모드(Live / Testnet / Demo / Dry run)와 판단 주체(by Jev / mock model / TradingView strategy) 표시. 15m 차트에서 전략 라인 표시 |
+| 테스트 | `bun test` 83개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
+| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 18번 인수인계 커밋까지 푸시, 커밋 안 된 변경 없음) |
+| 미검증 | 실제 키로 주문하는 경로 전체 |
+
+### 현재 `.env` 주요 값 (비밀값 제외, 2026-10-07 확인)
+
+| 변수 | 값 | 비고 |
+| --- | --- | --- |
+| `COINS` | `BTC,ETH,SOL,DOGE,BNB` | |
+| `BYBIT_ENV` | `demo` | |
+| `BYBIT_API_KEY` 등 | 비어 있음 | 그래서 dry run |
+| `MODEL` | `strategy` | |
+| `STRATEGY_LEVERAGE` | `15` | **실제 적용은 10x** (아래 "알려진 문제" 첫 번째 항목) |
+| `MAX_LEVERAGE` | `20` | |
+| `MAX_POSITION_USD` | 비어 있음 | 한도 없음 |
+
+`.env`는 git에 올라가지 않습니다. 다른 PC에서 이어서 작업할 때는 `.env.example`을 복사한 뒤 위 값을 다시 넣어야 합니다.
+
+### 코드 지도
+
+| 파일 | 역할 |
+| --- | --- |
+| `src/index.ts` | 시작점. 코인별로 시세, 주문, 판단 모델, Trader를 묶음 |
+| `src/config.ts` | `.env` 읽기와 검증 (`MODEL`, `BYBIT_ENV` 등) |
+| `src/sleeves.ts` | `COINS`와 코인별 Bybit 키 로딩 |
+| `src/bybit-api.ts` | Bybit V5 REST 서명, 환경별 주소 |
+| `src/bybit-feed.ts` | 호가, 체결, 캔들(1m, 15m), 티커 웹소켓 |
+| `src/bybit-market.ts` | 주문, 정정, 취소, 레버리지, 포지션, 비공개 웹소켓 |
+| `src/venue.ts` | Trader가 쓰는 거래소 인터페이스 `VenueMarket` |
+| `src/model.ts` | 판단 모델 3가지(`MockModel`, `JevModel`, `StrategyModel`)와 `createModel` |
+| `src/strategy.ts` | 사용자 지정 전략 규칙(EMA 125 채널, 15분봉) |
+| `src/plan.ts` | 판단을 주문 한 건으로 변환, 레버리지 단계, 포지션 상한 |
+| `src/trader.ts` | 매 틱 루프 |
+| `src/types.ts` | 봇과 대시보드 사이 데이터 타입. `web/src/lib/bot-types.ts`와 **똑같이 유지** |
+| `web/src/lib/mode.ts` | 상단의 거래 모드와 판단 주체 문구 |
+| `web/src/components/FlowChart/` | 차트, 전략 라인 |
+| `test/` | 테스트 (소스 옆이 아니라 여기에 둠) |
+
+### 지켜야 할 결정 사항
+
+- 거래소는 Bybit만 씁니다. Hyperliquid 코드는 삭제했습니다(9번).
+- strategy는 15분봉만 쓰고, 매 틱 형성 중인 15분봉에 현재가를 반영해 판단합니다. 전략 라인은 15m 차트에서만 표시합니다(16번, 사용자 확인).
+- `mock`과 `strategy`는 코드가 판단합니다. 대시보드가 Jev가 판단한 것처럼 보이면 안 되므로, 판단 주체 표시를 유지합니다(CLAUDE.md).
+- 화면 문구에 가운뎃점, em 대시, en 대시를 쓰지 않고, 깜빡이는 표시도 쓰지 않습니다(CLAUDE.md).
+- 관망(hold)을 없애거나 강제로 주문을 내게 바꾸지 않습니다(CLAUDE.md).
+- 작업 방식
+  - 사용자와는 한국어로 소통합니다.
+  - 모든 작업은 이 파일에 번호를 붙여 기록합니다.
+  - 커밋과 푸시는 사용자가 요청할 때만 합니다.
+  - 커밋 메시지 끝에는 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`을 붙입니다.
+
+### 알려진 문제와 결정이 필요한 것
+
+1. **`STRATEGY_LEVERAGE=15`가 실제로는 10x입니다.**
+   - 레버리지는 1, 2, 3, 5, 10, 20, 40, 50 단계로만 고를 수 있습니다(`src/plan.ts`의 `leverageRungs`).
+   - 15는 10과 20의 정확히 중간이라 낮은 쪽(10)이 선택됩니다. 실행 중인 봇의 판단 기록도 모두 10x였습니다.
+   - 15x를 원하면 둘 중 하나를 정해야 합니다. 단계에 15를 넣거나, strategy는 설정값을 그대로 쓰게 하는 방법입니다.
+2. 실제 키로 주문하는 경로는 한 번도 실행해 보지 않았습니다.
+3. strategy에는 손절이 없습니다(원본 파인 스크립트도 실제로는 손절이 동작하지 않음). 손절 방식(봇 판단, Bybit 서버 손절, 둘 다)은 사용자가 아직 정하지 않았습니다.
+4. 상단 소개 문구 "Live Jev trading bot"과 페이지 제목은 strategy 모드에서도 그대로입니다. 바꿀지 결정이 필요합니다.
+5. 대시보드 GitHub 아이콘과 `web/public/llms.txt` 링크가 원본 저장소(aowang-ai/jev-trade)를 가리킵니다.
+6. 봇 코드에 타입 오류 5개가 있습니다(`src/config.ts`, `src/model.ts`의 Jev 관련 코드, 이번 작업 전부터 있던 것). 테스트와 실행에는 영향이 없습니다.
+
+할 일 전체 목록은 맨 아래 "남은 작업"에 있습니다.
 
 ## 작업 목록
 
@@ -32,6 +113,8 @@
 14. 차트 오류 수정: "Cannot update oldest data"
 15. 차트 오류 수정분 커밋, 푸시
 16. strategy를 15분봉 전용으로 고정, 전략 라인은 15m 차트에서만 표시
+17. 15분봉 고정 작업 커밋, 푸시
+18. 인수인계 정리 (2026-10-07)
 
 각 항목은 작업한 시점의 기록입니다. 이후 작업으로 바뀐 내용(예: 1~7번의 Hyperliquid 관련 설명)은 9번에서 정리했습니다.
 
@@ -430,6 +513,33 @@ README.md 전체를 한글로 다시 작성했습니다. 기존 내용에 더해
   - 15m: short 86,197.6(빨강), long 83,364.4(초록)가 표시됩니다.
   - 다시 5m: 라인이 사라집니다. 콘솔 오류는 없었습니다.
 
+### 17. 15분봉 고정 작업 커밋, 푸시
+
+- 커밋 `7ff27e3` "Run the TradingView strategy on 15m candles only"를 `origin/main`에 푸시했습니다(`dce9d4d..7ff27e3`).
+- 파일 10개를 커밋했습니다. 커밋 전 `bun test` 83개 통과를 확인했고, `.env`와 키 파일은 포함되지 않았습니다.
+
+## 2026-10-07
+
+### 18. 인수인계 정리
+
+**요청**: 작업 내역을 기록하고, 다음에 이어서 작업할 수 있게 해 달라는 요청입니다.
+
+**변경**
+
+- `Bot_Job_Log.md`
+  - 맨 위에 "다음 작업 시작하기" 섹션을 추가했습니다(처음 할 일, 현재 상태, `.env` 주요 값, 코드 지도, 결정 사항, 알려진 문제).
+  - 17번과 18번 기록을 추가하고 "남은 작업"을 갱신했습니다.
+- `CLAUDE.md`: 새 세션에서 이 파일을 먼저 읽고, 작업마다 기록하라는 "Session handoff" 섹션을 추가했습니다. Claude Code는 CLAUDE.md를 세션 시작 때 자동으로 읽습니다.
+- 이 정리 내용은 커밋 "Add session handoff to Bot_Job_Log.md and CLAUDE.md"로 `origin/main`에 푸시했습니다.
+- Claude 메모리(이 PC의 `~/.claude/projects/.../memory/`)에 작업 방식과 프로젝트 상태 위치를 저장했습니다. 이 메모리는 git에 올라가지 않고 이 PC에서만 쓰입니다.
+
+**확인한 것**
+
+- 저장소: 최신 커밋 `7ff27e3`, 커밋 안 된 변경 없음(정리 전 기준)
+- 실행 중: 봇 3000, 대시보드 3001
+- `.env`: `MODEL=strategy`, `STRATEGY_LEVERAGE=15`, `MAX_LEVERAGE=20`
+- 발견: `STRATEGY_LEVERAGE=15`가 실제로는 10x로 적용됩니다. 실행 중인 봇의 판단 기록도 모두 10x였습니다. 코드는 바꾸지 않고 "알려진 문제" 첫 번째 항목으로 기록했습니다.
+
 ## 남은 작업
 
 **우선**
@@ -447,6 +557,8 @@ README.md 전체를 한글로 다시 작성했습니다. 기존 내용에 더해
 
 **전략**
 
+- [ ] `STRATEGY_LEVERAGE=15`가 10x로 적용되는 문제 결정 (레버리지 단계에 15 추가 또는 설정값 그대로 사용)
+- [ ] 손절 방식 결정 후 구현 (봇 판단 `STRATEGY_STOP_LOSS_PCT`, Bybit 서버 손절, 또는 둘 다)
 - [ ] `MODEL=strategy` 실제 키로 검증 (진입은 PostOnly라 급변 시 미체결 가능)
 - [ ] (선택) 원본처럼 봉 마감 기준 판단 옵션, 손절 옵션
 - [ ] (선택) mock 노이즈를 코인별로 분리, dry run에서 같은 주문 로그 생략
@@ -455,4 +567,6 @@ README.md 전체를 한글로 다시 작성했습니다. 기존 내용에 더해
 
 - [x] `package.json`의 `dev:web` 스크립트 수정 (10번)
 - [ ] 기존 Jev 관련 코드(`config.ts`, `model.ts`)의 타입 오류 5개 정리
+- [ ] strategy 모드일 때 상단 소개 문구와 페이지 제목 처리 결정
+- [ ] 대시보드 GitHub 링크와 `llms.txt` 링크를 JajangBot으로 바꿀지 결정
 - [ ] (선택) Bybit 레이트 리밋 대응 보강
