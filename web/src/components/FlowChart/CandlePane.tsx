@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CandlestickSeries,
   ColorType,
   CrosshairMode,
+  LineSeries,
   LineStyle,
+  type TickMarkType,
   createChart,
   createSeriesMarkers,
   type CandlestickData,
-  type AutoscaleInfo,
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
@@ -18,8 +19,11 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
+import { backtestDetail, type BacktestMark } from "@/lib/backtest";
 import { canUpdateInPlace, type Candle, type FillMark, type SeriesShown } from "@/lib/ohlc";
-import type { StrategyLevels } from "@/lib/types";
+import type { ChannelLines } from "@/lib/levels";
+import { crosshairLabel, tickLabel, zonedDateTime } from "@/lib/chartTime";
+import styles from "./FlowChart.module.css";
 
 export type EntryLine = {
   price: number;
@@ -29,14 +33,19 @@ export type EntryLine = {
 type Props = {
   candles: Candle[];
   marks: FillMark[];
+  /** Simulated trades from `bun run backtest`. Drawn in their own color so they never pass for fills. */
+  backtest: BacktestMark[];
+  /** Coin and backtest leverage for the hover card. */
+  coin: string;
+  backtestLeverage: number;
   entry: EntryLine | null;
-  /** MODEL=strategy channel: dashed long (green) and short (red) lines. */
-  levels: StrategyLevels | null;
-  /** Stretch the price scale so the lines stay on screen. */
-  fitLevels: boolean;
+  /** MODEL=strategy channel over time: dashed long (green) and short (red) lines. */
+  channel: ChannelLines | null;
   rangeKey: string;
   visibleBars: number;
   secondsVisible: boolean;
+  /** Hours added to UTC for axis, crosshair, and hover card labels. */
+  offsetH: number;
   formatPrice: (n: number) => string;
 };
 
@@ -44,6 +53,9 @@ const UP = "#000000";
 const DOWN = "#ffffff";
 const BUY = "#00aa00";
 const SELL = "#cc0000";
+const BACKTEST = "#1f5fd6";
+const BT_WIN = "#0a7a3a";
+const BT_LOSS = "#c2410c";
 
 function asTime(sec: number): UTCTimestamp {
   return sec as UTCTimestamp;
@@ -69,6 +81,21 @@ function toMarkers(rows: FillMark[]): SeriesMarker<Time>[] {
   }));
 }
 
+/** Long entry and short exit buy, so they sit below the bar; the other two sit above. */
+function toBacktestMarkers(rows: BacktestMark[]): SeriesMarker<Time>[] {
+  return rows.map((m) => {
+    const below = (m.kind === "entry") === (m.side === "long");
+    return {
+      time: asTime(m.time),
+      position: below ? "belowBar" : "aboveBar",
+      shape: m.kind === "exit" ? "circle" : below ? "arrowUp" : "arrowDown",
+      color: m.kind === "exit" ? (m.win ? BT_WIN : BT_LOSS) : BACKTEST,
+      size: m.kind === "exit" ? 0.6 : 0.9,
+      text: m.text,
+    };
+  });
+}
+
 function stemOf(rows: Candle[]): string {
   if (!rows.length) return "empty";
   return `${rows[0]!.time}`;
@@ -84,12 +111,15 @@ function showLatest(chart: IChartApi | null, count: number, visibleBars: number)
 export default function CandlePane({
   candles,
   marks,
+  backtest,
+  coin,
+  backtestLeverage,
   entry,
-  levels,
-  fitLevels,
+  channel,
   rangeKey,
   visibleBars,
   secondsVisible,
+  offsetH,
   formatPrice,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -97,16 +127,18 @@ export default function CandlePane({
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const entryLineRef = useRef<IPriceLine | null>(null);
-  const longLineRef = useRef<IPriceLine | null>(null);
-  const shortLineRef = useRef<IPriceLine | null>(null);
-  const levelsRef = useRef<{ levels: StrategyLevels | null; fit: boolean }>({ levels: null, fit: false });
-  levelsRef.current = { levels, fit: fitLevels };
+  const longRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const shortRef = useRef<ISeriesApi<"Line"> | null>(null);
   const stemRef = useRef("");
   /** What the series holds now, so an incremental update is only used when it is safe. */
   const shownRef = useRef<SeriesShown>({ key: "", stem: "", count: 0, lastTime: 0 });
   const rangeRef = useRef("");
+  const btByTimeRef = useRef(new Map<number, BacktestMark[]>());
+  const [hover, setHover] = useState<{ x: number; y: number; time: number } | null>(null);
   const formatRef = useRef(formatPrice);
   formatRef.current = formatPrice;
+  const clockRef = useRef({ offsetH, secondsVisible });
+  clockRef.current = { offsetH, secondsVisible };
 
   useEffect(() => {
     const el = hostRef.current;
@@ -130,8 +162,12 @@ export default function CandlePane({
         timeVisible: true,
         secondsVisible,
         shiftVisibleRangeOnNewBar: true,
+        tickMarkFormatter: (time: Time, type: TickMarkType) => tickLabel(time as number, type, clockRef.current.offsetH),
       },
-      localization: { priceFormatter: (p: number) => formatRef.current(p) },
+      localization: {
+        priceFormatter: (p: number) => formatRef.current(p),
+        timeFormatter: (time: Time) => crosshairLabel(time as number, clockRef.current.offsetH, clockRef.current.secondsVisible),
+      },
     });
     const series = chart.addSeries(CandlestickSeries, {
       upColor: UP,
@@ -140,20 +176,31 @@ export default function CandlePane({
       borderDownColor: UP,
       wickUpColor: UP,
       wickDownColor: UP,
-      autoscaleInfoProvider: (original: () => AutoscaleInfo | null) => {
-        const r = original();
-        const { levels: lv, fit } = levelsRef.current;
-        if (!r || !r.priceRange || !lv || !fit) return r;
-        return {
-          ...r,
-          priceRange: {
-            minValue: Math.min(r.priceRange.minValue, lv.long),
-            maxValue: Math.max(r.priceRange.maxValue, lv.short),
-          },
-        };
-      },
     });
+    // Line series join the autoscale, so the channel stays on screen like the candles.
+    const line = (color: string, title: string) =>
+      chart.addSeries(LineSeries, {
+        color,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        crosshairMarkerVisible: false,
+        title,
+      });
+    longRef.current = line(BUY, "long");
+    shortRef.current = line(SELL, "short");
     const markers = createSeriesMarkers(series, []);
+    // Hover card for backtest trades: shows when the crosshair sits on a bar that has a BT mark.
+    chart.subscribeCrosshairMove((param) => {
+      const t = typeof param.time === "number" ? param.time : null;
+      if (t == null || !param.point || !btByTimeRef.current.has(t)) {
+        setHover((h) => (h ? null : h));
+        return;
+      }
+      const { x, y } = param.point;
+      setHover((h) => (h && h.time === t && Math.abs(h.x - x) < 24 && Math.abs(h.y - y) < 24 ? h : { x, y, time: t }));
+    });
     const ro = new ResizeObserver((entries) => {
       const r = entries[0]?.contentRect;
       if (!r) return;
@@ -171,17 +218,18 @@ export default function CandlePane({
       seriesRef.current = null;
       markersRef.current = null;
       entryLineRef.current = null;
-      longLineRef.current = null;
-      shortLineRef.current = null;
+      longRef.current = null;
+      shortRef.current = null;
       stemRef.current = "";
       shownRef.current = { key: "", stem: "", count: 0, lastTime: 0 };
       rangeRef.current = "";
     };
   }, []);
 
+  // Formatters read clockRef; applyOptions makes the chart redraw its labels.
   useEffect(() => {
     chartRef.current?.applyOptions({ timeScale: { secondsVisible, timeVisible: true } });
-  }, [secondsVisible]);
+  }, [secondsVisible, offsetH]);
 
   useEffect(() => {
     const series = seriesRef.current;
@@ -212,8 +260,14 @@ export default function CandlePane({
   }, [candles, rangeKey, visibleBars]);
 
   useEffect(() => {
-    markersRef.current?.setMarkers(toMarkers(marks));
-  }, [marks]);
+    const byTime = new Map<number, BacktestMark[]>();
+    for (const m of backtest) byTime.set(m.time, [...(byTime.get(m.time) ?? []), m]);
+    // The marks are rebuilt on every price print, so keep the hover; a stale time just finds no marks.
+    btByTimeRef.current = byTime;
+    const all = toMarkers(marks).concat(toBacktestMarkers(backtest));
+    all.sort((a, b) => (a.time as number) - (b.time as number));
+    markersRef.current?.setMarkers(all);
+  }, [marks, backtest]);
 
   useEffect(() => {
     const series = seriesRef.current;
@@ -241,23 +295,44 @@ export default function CandlePane({
   }, [entry]);
 
   useEffect(() => {
-    const series = seriesRef.current;
-    if (!series) return;
-    const draw = (ref: { current: IPriceLine | null }, price: number | undefined, color: string, title: string) => {
-      if (!(price && price > 0)) {
-        if (ref.current) series.removePriceLine(ref.current);
-        ref.current = null;
-        return;
-      }
-      const opts = { price, color, lineWidth: 1 as const, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title };
-      if (ref.current) ref.current.applyOptions(opts);
-      else ref.current = series.createPriceLine(opts);
-    };
-    draw(shortLineRef, levels?.short, SELL, "short");
-    draw(longLineRef, levels?.long, BUY, "long");
-    // Re-run autoscale so a new band or a 1s switch takes effect now, not on the next bar.
-    chartRef.current?.priceScale("right").applyOptions({ autoScale: true });
-  }, [levels, fitLevels]);
+    const toLine = (rows: { time: number; value: number }[]) => rows.map((r) => ({ time: asTime(r.time), value: r.value }));
+    longRef.current?.setData(channel ? toLine(channel.long) : []);
+    shortRef.current?.setData(channel ? toLine(channel.short) : []);
+  }, [channel]);
 
-  return <div ref={hostRef} className="lwc-host" style={{ position: "absolute", inset: 0 }} />;
+  const hovered = hover ? btByTimeRef.current.get(hover.time) ?? [] : [];
+  const hostW = hostRef.current?.clientWidth ?? 0;
+  const flip = hover != null && hover.x > hostW - 300;
+
+  return (
+    <>
+      <div ref={hostRef} className="lwc-host" style={{ position: "absolute", inset: 0 }} />
+      {hover && hovered.length ? (
+        <div
+          className={styles.btCard}
+          style={{ left: flip ? undefined : hover.x + 16, right: flip ? hostW - hover.x + 16 : undefined, top: Math.max(8, hover.y - 40) }}
+          role="tooltip"
+        >
+          {hovered.map((m) => {
+            const d = backtestDetail(m.trade, coin, backtestLeverage, (ms) => zonedDateTime(ms, offsetH));
+            return (
+              <div key={`${m.kind}|${m.trade.entryTs}`} className={styles.btTrade}>
+                <div className={styles.btHead}>
+                  <span className={d.side === "long" ? styles.btLong : styles.btShort}>{d.title}</span>
+                  <span className={styles.btKind}>{m.kind === "entry" ? "entry" : "exit"}</span>
+                </div>
+                {d.rows.map((r) => (
+                  <div key={r.label} className={styles.btRow}>
+                    <span className={styles.btLabel}>{r.label}</span>
+                    <span className={r.tone ? styles[`bt_${r.tone}`] : undefined}>{r.value}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+          <div className={styles.btNote}>simulated by the strategy backtest, not a real fill</div>
+        </div>
+      ) : null}
+    </>
+  );
 }

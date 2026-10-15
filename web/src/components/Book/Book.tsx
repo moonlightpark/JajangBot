@@ -2,15 +2,21 @@
 
 import { useMemo, useState } from "react";
 import type { BlockEvent, Meta, PricePoint, SleeveMeta } from "@/lib/types";
+import type { BacktestReport } from "@/lib/bot-types";
+import { backtestLots, lotSummary } from "@/lib/backtest";
 import { closedLots, tapeFills } from "@/lib/fills";
 import { roePct } from "@/lib/pnl";
-import { displayCoin, fmtClock, fmtCoin, fmtPct, fmtPrice, fmtSignedUsd, fmtUsd, shortTx, txUrl } from "@/lib/format";
+import { displayCoin, fmtClock, fmtCoin, fmtDateTime, fmtPct, fmtPrice, fmtSignedUsd, fmtUsd, shortTx, txUrl } from "@/lib/format";
 import { Bone } from "@/components/Skeleton/Skeleton";
 import styles from "./Book.module.css";
 
 type Tab = "positions" | "trades" | "history";
 
 const TRADE_CAP = 200;
+/** Three months of backtest trades on every coin fit, with room for the bot's own. */
+const HISTORY_CAP = 2000;
+
+const day = (ts: number) => new Date(ts).toISOString().slice(0, 10);
 
 function fmtSize(size: number): string {
   if (size > 0 && size < 0.01) {
@@ -27,6 +33,7 @@ export default function Book({
   meta,
   onSelect,
   onNeedMoreTape,
+  backtest = null,
   waiting = false,
 }: {
   sleeves: SleeveMeta[];
@@ -36,10 +43,13 @@ export default function Book({
   meta?: Meta | null;
   onSelect: (coin: string) => void;
   onNeedMoreTape?: () => void;
+  /** Last `bun run backtest` run. Its closed trades are listed in History, marked as backtest. */
+  backtest?: BacktestReport | null;
   waiting?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("positions");
   const [allMarkets, setAllMarkets] = useState(false);
+  const [showBacktest, setShowBacktest] = useState(true);
 
   const trades = useMemo(() => {
     const rows = [];
@@ -53,17 +63,24 @@ export default function Book({
     return rows.slice(0, TRADE_CAP);
   }, [allMarkets, selected, sleeves, tapeByCoin]);
 
+  const scopeCoins = useMemo(
+    () => sleeves.map((s) => s.coin).filter((c) => allMarkets || c === selected),
+    [allMarkets, selected, sleeves],
+  );
+  const btLots = useMemo(() => backtestLots(backtest, scopeCoins), [backtest, scopeCoins]);
+  const btSummary = useMemo(() => lotSummary(btLots), [btLots]);
+
   const history = useMemo(() => {
     const rows = [];
-    for (const sleeve of sleeves) {
-      if (!allMarkets && sleeve.coin !== selected) continue;
-      for (const lot of closedLots(tapeFills(tapeByCoin[sleeve.coin] ?? []))) {
-        rows.push({ ...lot, coin: sleeve.coin });
+    for (const coin of scopeCoins) {
+      for (const lot of closedLots(tapeFills(tapeByCoin[coin] ?? []))) {
+        rows.push({ ...lot, coin, backtest: false });
       }
     }
+    if (showBacktest) for (const lot of btLots) rows.push({ ...lot, backtest: true });
     rows.sort((a, b) => b.ts - a.ts);
-    return rows.slice(0, TRADE_CAP);
-  }, [allMarkets, selected, sleeves, tapeByCoin]);
+    return rows.slice(0, HISTORY_CAP);
+  }, [scopeCoins, tapeByCoin, showBacktest, btLots]);
 
   return (
     <section className={styles.wrap}>
@@ -117,6 +134,17 @@ export default function Book({
             >
               All
             </button>
+            {tab === "history" && backtest ? (
+              <button
+                type="button"
+                className={showBacktest ? styles.scopeOn : styles.scopeBtn}
+                aria-pressed={showBacktest}
+                title="Simulated trades from bun run backtest (strategy rules on past candles). Not real fills, not Jev."
+                onClick={() => setShowBacktest((v) => !v)}
+              >
+                Backtest
+              </button>
+            ) : null}
           </span>
         ) : null}
       </div>
@@ -203,6 +231,7 @@ export default function Book({
                   <th>Exit</th>
                   <th>PnL</th>
                   <th>Fee</th>
+                  <th>Source</th>
                 </tr>
               </thead>
               <tbody>
@@ -216,6 +245,7 @@ export default function Book({
                     <td><Bone w={56} h={10} /></td>
                     <td><Bone w={56} h={10} /></td>
                     <td><Bone w={40} h={10} /></td>
+                    <td><Bone w={48} h={10} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -225,6 +255,17 @@ export default function Book({
           <div className={styles.empty}>no closed lots yet</div>
         ) : (
           <div className={styles.scroller}>
+            {showBacktest && btSummary.trades && backtest ? (
+              <div className={styles.btSummary}>
+                <span className={styles.btTag}>backtest (simulated)</span>
+                <span>{day(backtest.from)} to {day(backtest.to)}</span>
+                <span>{btSummary.trades} closed</span>
+                <span>win {Math.round((btSummary.wins / btSummary.trades) * 100)}%</span>
+                <span style={{ color: btSummary.netUsd >= 0 ? "var(--pnl-pos)" : "var(--pnl-neg)" }}>
+                  net {fmtSignedUsd(btSummary.netUsd, 2)}
+                </span>
+              </div>
+            ) : null}
             <table className={styles.table}>
               <thead>
                 <tr>
@@ -236,6 +277,7 @@ export default function Book({
                   <th>Exit</th>
                   <th>PnL</th>
                   <th>Fee</th>
+                  <th>Source</th>
                 </tr>
               </thead>
               <tbody>
@@ -244,7 +286,7 @@ export default function Book({
                   const pnlColor = lot.pnl >= 0 ? "var(--pnl-pos)" : "var(--pnl-neg)";
                   return (
                     <tr key={`${lot.coin}|${lot.key}`} onClick={() => onSelect(lot.coin)}>
-                      <td>{fmtClock(lot.ts, true)}</td>
+                      <td title={lot.openedTs ? `opened ${fmtDateTime(lot.openedTs)}` : undefined}>{fmtDateTime(lot.ts)}</td>
                       <td>{displayCoin(lot.coin)}</td>
                       <td style={{ color: sideColor }}>{lot.side.toUpperCase()}</td>
                       <td>{fmtSize(lot.size)}</td>
@@ -252,6 +294,7 @@ export default function Book({
                       <td>{fmtPrice(lot.exit)}</td>
                       <td style={{ color: pnlColor }}>{fmtSignedUsd(lot.pnl, 2)}</td>
                       <td>{lot.fee ? fmtUsd(lot.fee, 2) : "-"}</td>
+                      <td className={lot.backtest ? styles.btTag : undefined}>{lot.backtest ? "backtest" : "bot"}</td>
                     </tr>
                   );
                 })}

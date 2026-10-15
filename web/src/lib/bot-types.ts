@@ -118,6 +118,13 @@ export interface StrategyLevels {
   timeframe: string;
 }
 
+/** GET /levels: the strategy channel at the close of one 15m bar (`ts` is the bar start). */
+export interface ChannelPoint {
+  ts: number;
+  long: number;
+  short: number;
+}
+
 export interface BlockEvent {
   coin: string;
   block: number;
@@ -144,6 +151,11 @@ export interface SleeveMeta {
   pair: string;
   label: string;
   wallet: string | null;
+  /**
+   * Dry run only: net PnL of closed `bun run backtest` trades added to this sleeve's
+   * starting balance, so the balance runs on from the backtest. 0 with a wallet.
+   */
+  backtestUsd?: number;
 }
 
 export interface Meta {
@@ -165,4 +177,30 @@ export interface Meta {
 export interface Timing {
   readMs: number;
   loopMs: number;
+}
+
+/** One simulated trade from `bun run backtest`. Not a fill, and the strategy made the call, not Jev. */
+export interface BacktestTrade {
+  side: "long" | "short";
+  entryTs: number;
+  entryPx: number;
+  /** null while still open at the end of the data. */
+  exitTs: number | null;
+  exitPx: number;
+  size: number;
+  /** Net of both fees. An open trade is marked at the last close and pays no exit fee. */
+  pnlUsd: number;
+  feesUsd: number;
+  /** Worst move against the entry while held, in percent. */
+  maxAdversePct: number;
+}
+
+/** GET /backtest: the last `bun run backtest` run (MODEL=strategy rules on past 1m candles). */
+export interface BacktestReport {
+  from: number;
+  to: number;
+  ranAt: number;
+  quoteUsd: number;
+  leverageByCoin: Record<string, number>;
+  tradesByCoin: Record<string, BacktestTrade[]>;
 }

@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   // Agent rules live in the repo-root CLAUDE.md. Do not emit web/AGENTS.md.
   agentRules: false,
   allowedDevOrigins: ["127.0.0.1", "localhost"],
+  // A second dev server (dev:jev, the Jev bot's page) needs its own build folder.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
 };
 
 export default nextConfig;

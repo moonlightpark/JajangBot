@@ -11,6 +11,8 @@ export interface HeaderProps {
   balance: number | null;
   unrealized: number | null;
   realized: number | null;
+  /** Dry run: closed backtest PnL already inside `balance`. Null hides it. */
+  backtest?: number | null;
   /** From the bot's .env: Live, Testnet, Demo, or Dry run. Null until meta arrives. */
   mode: TradingMode | null;
   /** Who makes the call: Jev, mock model, or TradingView strategy. */
@@ -21,14 +23,16 @@ function Score({
   label,
   value,
   signed = true,
+  title,
 }: {
   label: string;
   value: number | null;
   signed?: boolean;
+  title?: string;
 }) {
   const color = !signed || value == null ? undefined : value >= 0 ? "var(--pnl-pos)" : "var(--pnl-neg)";
   return (
-    <span className={styles.score}>
+    <span className={styles.score} title={title}>
       <span className={styles.scoreKey}>{label}</span>
       <span className={styles.scoreVal} style={color ? { color } : undefined}>
         {value == null ? <Bone w={64} h={16} /> : signed ? fmtSignedUsd(value, 2) : fmtUsd(value, 2)}
@@ -48,7 +52,7 @@ function GitHubMark() {
   );
 }
 
-export default function Header({ connection, balance, unrealized, realized, mode, decider }: HeaderProps) {
+export default function Header({ connection, balance, unrealized, realized, backtest = null, mode, decider }: HeaderProps) {
   const live = connection === "live";
   const label = !live ? "Offline" : mode ? mode.label : "Connecting";
 
@@ -56,7 +60,7 @@ export default function Header({ connection, balance, unrealized, realized, mode
     <div className={styles.header}>
       <span className={styles.brandLockup}>
         <Logo size={20} />
-        <h1 className={styles.brand}>Jev Trade</h1>
+        <h1 className={styles.brand}>ChoRong Jev Trade</h1>
         <p className={styles.tagline}>Live Jev trading bot</p>
         <span className={styles.links}>
           <a
@@ -83,6 +87,13 @@ export default function Header({ connection, balance, unrealized, realized, mode
       </span>
       <span className={styles.scores}>
         <Score label="balance" value={balance} signed={false} />
+        {backtest != null ? (
+          <Score
+            label="backtest"
+            value={backtest}
+            title="Closed trades from bun run backtest (strategy rules on past candles), simulated. Included in balance. Dry run only."
+          />
+        ) : null}
         <Score label="unrealized" value={unrealized} />
         <Score label="realized" value={realized} />
       </span>

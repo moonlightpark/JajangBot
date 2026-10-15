@@ -53,6 +53,22 @@ export function resolveModel(raw?: string): ModelName {
   throw new Error("MODEL must be mock, jev, or strategy");
 }
 
+export type StrategyExit = "opposite" | "mid";
+
+export function resolveStrategyExit(raw?: string): StrategyExit {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (!v || v === "opposite") return "opposite";
+  if (v === "mid") return "mid";
+  throw new Error("STRATEGY_EXIT must be opposite or mid");
+}
+
+export function resolveEmaLen(raw?: string): number {
+  if (!raw?.trim()) return 125;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 2 || n > 900) throw new Error("STRATEGY_EMA_LEN must be a whole number from 2 to 900");
+  return n;
+}
+
 export function resolveBybitEnv(raw?: string): BybitEnv {
   const v = (raw ?? "").trim().toLowerCase();
   if (!v || v === "demo") return "demo";
@@ -87,11 +103,23 @@ export const config = {
   model: resolveModel(env("MODEL")),
   /** MODEL=strategy: leverage for entries. The script's labels say x3. */
   strategyLeverage: Math.max(1, Number(env("STRATEGY_LEVERAGE", "3")) || 3),
+  /** MODEL=strategy variant (src/strategy.ts StrategyRules). Unset, each is the script as written. */
+  strategyEmaLen: resolveEmaLen(env("STRATEGY_EMA_LEN")),
+  /** Stop loss as a fraction (STRATEGY_STOP_PCT=5 is 0.05). null: no stop. */
+  strategyStopPct: cap("STRATEGY_STOP_PCT") == null ? null : cap("STRATEGY_STOP_PCT")! / 100,
+  strategyExit: resolveStrategyExit(env("STRATEGY_EXIT")),
+  strategyOnBarClose: env("STRATEGY_ON_BAR_CLOSE") === "true",
+  /** Days of 15m candles loaded at start, so the chart reaches back that far. At least 1000 bars either way. */
+  chartDays: Math.max(1, Number(env("CHART_DAYS", "92")) || 92),
   /** typesafe = official TypeSafe API. gateway = Vercel AI Gateway. */
   jevProvider,
   jevModelId,
   jevUsdPerMTok: 0.042,
   port: Number(env("PORT", "3000")),
   historySize: 1000,
-  bankrollUsd: Number(env("BANKROLL_USD", "200")),
+  /** Dry run starting balance, all coins together. Each sleeve starts with an equal share. */
+  bankrollUsd: Math.max(0, Number(env("BANKROLL_USD", "500")) || 0),
+  /** Dry run fills pay Bybit's default (non VIP) linear fees: maker on resting entries, taker on IOC exits. */
+  simMakerFee: 0.0002,
+  simTakerFee: 0.00055,
 };

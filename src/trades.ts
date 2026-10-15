@@ -137,5 +137,9 @@ export function aggregateFills(fills: Fill[]): Fill {
   const size = same.reduce((s, f) => s + f.size, 0);
   const price = same.reduce((s, f) => s + f.size * f.price, 0) / size;
   const round4 = (x: number) => Math.round(x * 1e4) / 1e4;
-  return { side, size: round4(size), price, txHash: same[0]!.txHash, orderId: same[0]!.orderId, simulated: same[0]!.simulated, dir: same[0]!.dir };
+  const fee = fills.reduce((s, f) => s + (f.feeUsd ?? 0), 0);
+  return {
+    side, size: round4(size), price, txHash: same[0]!.txHash, orderId: same[0]!.orderId, simulated: same[0]!.simulated, dir: same[0]!.dir,
+    ...(fee ? { feeUsd: fee } : {}),
+  };
 }

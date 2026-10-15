@@ -143,3 +143,18 @@
     font-size: 11px;
   }
 }
+
+/* Backtest rows and summary in History: simulated, so they carry the chart's backtest blue. */
+.btTag {
+  color: var(--backtest);
+}
+
+.btSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font: 400 11px var(--font-mono), monospace;
+  color: var(--ink-2);
+}

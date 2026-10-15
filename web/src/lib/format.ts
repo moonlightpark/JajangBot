@@ -111,6 +111,13 @@ export function fmtClock(ts: number | null | undefined, withSeconds = false): st
   return withSeconds ? `${hh}:${mm}:${pad(d.getSeconds())}` : `${hh}:${mm}`;
 }
 
+/** "07/09 04:37" in local time, for rows that span months. */
+export function fmtDateTime(ts: number | null | undefined): string {
+  if (typeof ts !== "number" || !Number.isFinite(ts)) return "--/-- --:--";
+  const d = new Date(ts);
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /** Axis label: clock, or date plus clock when the span is longer than a day. */
 export function fmtAxisTime(ts: number | null | undefined, spanMs: number): string {
   if (typeof ts !== "number" || !Number.isFinite(ts)) return "--:--";

@@ -36,6 +36,8 @@ export class Trader {
   private position = { sz: 0, costUsd: 0 };
   private totals: Totals = emptyTotals();
   private jevPauseUntil = 0;
+  /** Dry run starting balance for this sleeve. index.ts splits BANKROLL_USD across sleeves. */
+  bankrollUsd = config.bankrollUsd;
 
   constructor(
     private market: VenueMarket,
@@ -175,6 +177,7 @@ export class Trader {
       orderId: --this.simId,
       simulated: true,
       dir: quote.reduceOnly ? "close" : "open",
+      feeUsd: quote.price * quote.size * config.simTakerFee,
     };
     this.applyFill(fill);
     this.recordFill(block, fill);
@@ -183,7 +186,10 @@ export class Trader {
   private harvest() {
     if (!this.trades) return;
     const prints = this.trades.drainPrints();
-    const fills = this.market.wallet ? takeLiveFills(this.orders, this.trades.drainFills()) : takeSimFills(this.orders, prints);
+    // A dry run fill rested post-only, so it pays the maker fee.
+    const fills = this.market.wallet
+      ? takeLiveFills(this.orders, this.trades.drainFills())
+      : takeSimFills(this.orders, prints).map((f) => ({ ...f, feeUsd: f.price * f.size * config.simMakerFee }));
     if (!fills.length) return;
     const byBlock = new Map<number, Fill[]>();
     for (const f of fills) {
@@ -282,6 +288,22 @@ export class Trader {
     this.totals.fills = this.market.fillPrints.length;
   }
 
+  /**
+   * Bybit equity when there is a wallet. A dry run has none, so it reports its own:
+   * the starting share plus PnL after fees, and free balance net of the open margin.
+   */
+  private balance(a: VenueMarket["account"], size: number, mid: number, leverage: number | null) {
+    if (this.market.wallet) {
+      return {
+        accountValue: a && Number.isFinite(a.accountValue) ? round(a.accountValue, 2) : null,
+        withdrawable: a && Number.isFinite(a.withdrawable) ? round(a.withdrawable, 2) : null,
+      };
+    }
+    const equity = this.bankrollUsd + this.totals.pnlUsd;
+    const margin = size && mid ? (size * mid) / Math.max(1, leverage ?? 1) : 0;
+    return { accountValue: round(equity, 2), withdrawable: round(Math.max(0, equity - margin), 2) };
+  }
+
   private entryPrice() { return this.position.sz ? this.position.costUsd / this.position.sz : null; }
   private unrealizedUsd(mid: number) { return this.position.sz ? this.position.sz * (mid - this.entryPrice()!) : 0; }
 
@@ -293,7 +315,7 @@ export class Trader {
     const unrealized = a ? a.unrealizedUsd : this.unrealizedUsd(book.mid);
     t.pnlUsd = t.realizedUsd + unrealized - t.gasUsd;
     t.pnlSz = t.pnlUsd / book.mid;
-    t.pnlPct = (t.pnlUsd / (a?.accountValue || config.bankrollUsd)) * 100;
+    t.pnlPct = (t.pnlUsd / (a?.accountValue || this.bankrollUsd || 1)) * 100;
     const size = Math.abs(this.position.sz);
     const event: BlockEvent = {
       coin: this.market.coin,
@@ -323,8 +345,7 @@ export class Trader {
       },
       totals: { ...t, jevUsd: round(t.jevUsd, 6), gasSz: round(t.gasSz, 8), gasUsd: round(t.gasUsd, 6), realizedUsd: round(t.realizedUsd, 6), pnlUsd: round(t.pnlUsd, 6), pnlSz: round(t.pnlSz, 8), pnlPct: round(t.pnlPct, 4) },
       ...(!late && decision?.levels ? { levels: decision.levels } : {}),
-      accountValue: a && Number.isFinite(a.accountValue) ? round(a.accountValue, 2) : null,
-      withdrawable: a && Number.isFinite(a.withdrawable) ? round(a.withdrawable, 2) : null,
+      ...this.balance(a, size, book.mid, a?.leverage ?? decision?.leverage ?? null),
     };
     this.history.push(event);
     if (this.history.length > config.historySize) this.history.shift();

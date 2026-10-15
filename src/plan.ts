@@ -17,6 +17,13 @@ export function parseLeverage(raw: unknown, max: number, fallback: number): numb
   return rungs.reduce((best, x) => (Math.abs(x - seed) < Math.abs(best - seed) ? x : best), rungs[0]!);
 }
 
+/** A set leverage as is, rounded and held to 1..max. No rungs: 15 stays 15. */
+export function clampLeverage(raw: number, max: number): number {
+  const cap = Math.max(1, Math.floor(Number(max) || 1));
+  const n = Number.isFinite(raw) ? Math.round(raw) : 1;
+  return Math.max(1, Math.min(cap, n));
+}
+
 /** Close is only a real choice when a position exists. Flat plus close means stand down. */
 export function liveIntent(positionSide: "long" | "short" | "flat", picked: Intent): Intent {
   if (positionSide !== "flat") return picked;

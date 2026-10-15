@@ -1,11 +1,18 @@
-import { config } from "./config";
-import { createModel } from "./model";
+import { assertJevCredentials, config } from "./config";
+import { closedNetByCoin, readBacktestReport } from "./backtest";
+import { createModel, describeStrategy } from "./model";
 import { hasKeys, loadSleeves } from "./sleeves";
 import { startServer, type SleeveView } from "./server";
 import { Trader } from "./trader";
 import type { BlockEvent, Fill, Meta, Quote, Timing } from "./types";
 import { BybitFeed } from "./bybit-feed";
 import { BybitMarket } from "./bybit-market";
+
+// Without a Jev key every sleeve would fail and retry; say why once, up front.
+assertJevCredentials(config.model, config.jevProvider, {
+  TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY,
+  AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
+});
 
 const specs = loadSleeves();
 if (!specs.length) throw new Error("no sleeves");
@@ -26,6 +33,13 @@ const meta: Meta = {
   tickMs: config.tickMs,
   sleeves: [],
 };
+
+// A dry run's balance runs on from the backtest: each sleeve starts at its share of
+// BANKROLL_USD plus the net of its closed backtest trades. A wallet uses Bybit's balance.
+// The backtest replays the strategy, so only MODEL=strategy carries it; a Jev or mock
+// bot starts flat at BANKROLL_USD, which keeps a side-by-side comparison even.
+const backtest = config.model === "strategy" ? await readBacktestReport() : null;
+const backtestNet = closedNetByCoin(backtest);
 
 let server: ReturnType<typeof startServer> | undefined;
 const starters: Array<() => void> = [];
@@ -55,6 +69,9 @@ for (const spec of specs) {
         onQuote(spec.coin),
       );
       trader.attachTradeFeed(feed.trades);
+      const dry = config.dryRun || !hasKeys(spec);
+      const btUsd = dry ? Math.round((backtestNet[spec.coin] ?? 0) * 100) / 100 : 0;
+      trader.bankrollUsd = config.bankrollUsd / specs.length + btUsd;
       market.onVenueFill = (p) => {
         server?.broadcastFill(spec.coin, 0, {
           side: p.side,
@@ -67,7 +84,7 @@ for (const spec of specs) {
         }, p.ts);
       };
       views.push({ coin: spec.coin, history: () => trader.history, tape: () => trader.tape });
-      meta.sleeves.push({ coin: spec.coin, pair: spec.pair, label: spec.label, wallet: market.address });
+      meta.sleeves.push({ coin: spec.coin, pair: spec.pair, label: spec.label, wallet: market.address, backtestUsd: btUsd });
       if (spec === first) {
         meta.wallet = market.address;
         meta.coin = spec.coin;
@@ -75,7 +92,7 @@ for (const spec of specs) {
         meta.market = spec.pair;
       }
       starters.push(() => feed.start((tick) => trader.onBlock(tick)));
-      console.log(`sleeve ${spec.label} ${spec.pair} ${config.dryRun || !hasKeys(spec) ? "DRY RUN" : market.address}`);
+      console.log(`sleeve ${spec.label} ${spec.pair} ${dry ? `DRY RUN, balance $${trader.bankrollUsd.toFixed(2)} (start $${(config.bankrollUsd / specs.length).toFixed(2)} + backtest $${btUsd.toFixed(2)})` : market.address}`);
       lastErr = null;
       break;
     } catch (e) {
@@ -91,7 +108,7 @@ if (!views.length) throw new Error("no sleeves started");
 server = startServer(meta, views);
 for (const start of starters) start();
 
-console.log(`jev-trade bybit ${config.bybitEnv} ${meta.sleeves.map((s) => s.label).join(" ")} model=${meta.model}${config.model === "jev" ? ` ${config.jevProvider}` : config.model === "strategy" ? ` 15m ${config.strategyLeverage}x` : ""} tick ${config.tickMs}ms price ${config.priceMs}ms quote $${config.quoteUsd} :${config.port}`);
+console.log(`jev-trade bybit ${config.bybitEnv} ${meta.sleeves.map((s) => s.label).join(" ")} model=${meta.model}${config.model === "jev" ? ` ${config.jevProvider}` : config.model === "strategy" ? ` 15m ${config.strategyLeverage}x (${describeStrategy()})` : ""} tick ${config.tickMs}ms price ${config.priceMs}ms quote $${config.quoteUsd} :${config.port}`);
 
 function onEvent(coin: string) {
   return (e: BlockEvent, t?: Timing) => {

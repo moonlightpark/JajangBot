@@ -3,7 +3,7 @@ import type { PricePoint } from "./bot-types";
 export const SECOND_MS = 1000;
 export const MINUTE_MS = 60_000;
 export const M15_MS = 15 * 60_000;
-export type BarSize = "1s" | "1m" | "5m" | "15m" | "1H";
+export type BarSize = "1s" | "1m" | "5m" | "15m" | "1H" | "4H" | "1D";
 
 export type Candle = {
   time: number;
@@ -20,6 +20,8 @@ export type FillMark = {
 
 export function barMs(bar: BarSize): number {
   if (bar === "1s") return SECOND_MS;
+  if (bar === "1D") return 24 * 60 * MINUTE_MS;
+  if (bar === "4H") return 4 * 60 * MINUTE_MS;
   if (bar === "1H") return 60 * MINUTE_MS;
   if (bar === "15m") return M15_MS;
   if (bar === "5m") return 5 * MINUTE_MS;
@@ -85,12 +87,13 @@ export function barsForView(tape: PricePoint[], bar: BarSize): Candle[] {
   if (bar === "1s") return aggregateBars(tagged1s, "1s");
   if (bar === "1m") return aggregateBars(m1, "1m");
   if (bar === "5m") return aggregateBars(m1, "5m");
-  if (bar === "1H") {
-    const from1 = aggregateBars(m1, "1H");
-    if (!from1.length) return aggregateBars(tagged15, "1H");
-    const first = from1[0]!.time;
-    const older = aggregateBars(tagged15, "1H").filter((c) => c.time < first);
-    return older.concat(from1);
+  if (bar === "1H" || bar === "4H" || bar === "1D") {
+    // 15m before the first 1m, then 1m, in one roll. The bucket where they meet gets
+    // both, so a 1D candle is the whole day and not just the hours 1m covers.
+    if (!m1.length) return aggregateBars(tagged15, bar);
+    const first = Math.min(...m1.map((p) => p.ts));
+    const older = tagged15.filter((p) => p.ts < first).sort((a, b) => a.ts - b.ts);
+    return aggregateBars(older.concat([...m1].sort((a, b) => a.ts - b.ts)), bar);
   }
   const from1m = aggregateBars(m1, "15m");
   if (!from1m.length) return aggregateBars(tagged15, "15m");

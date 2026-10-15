@@ -1,9 +1,9 @@
 import { experimental_evaluate as evaluate } from "ai";
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { assertJevCredentials, config } from "./config";
-import { leverageRungs, liveIntent, parseLeverage, quoteAction, type Bias, type Intent } from "./plan";
+import { clampLeverage, leverageRungs, liveIntent, parseLeverage, quoteAction, type Bias, type Intent } from "./plan";
 import type { Ohlc } from "./chart";
-import { MAGINGA, magingaDecision, withLiveBar } from "./strategy";
+import { closedBars, MAGINGA, magingaLines, rearm, strategyCall, withLiveBar, type MagingaParams, type StrategyRules } from "./strategy";
 import type { Action, Side, StrategyLevels } from "./types";
 
 /** What the model sees. Compact, relative, human-readable. */
@@ -411,36 +411,65 @@ export class MockModel implements Model {
   }
 }
 
+/** The strategy variant the bot runs, from .env. The backtest and the chart lines use the same. */
+export const liveStrategy: { params: MagingaParams; rules: StrategyRules } = {
+  params: { ...MAGINGA, emaLen: config.strategyEmaLen },
+  rules: { stopPct: config.strategyStopPct, exit: config.strategyExit, onBarClose: config.strategyOnBarClose },
+};
+
+/** "EMA 200, stop 5%, exit mid, bar close" for logs. Only the parts that differ from the script. */
+export function describeStrategy(s = liveStrategy): string {
+  const parts = [`EMA ${s.params.emaLen}`];
+  if (s.rules.stopPct) parts.push(`stop ${+(s.rules.stopPct * 100).toFixed(2)}%`);
+  if (s.rules.exit !== "opposite") parts.push(`exit ${s.rules.exit}`);
+  if (s.rules.onBarClose) parts.push("bar close");
+  return parts.join(", ");
+}
+
 /**
- * User strategy: the TradingView "[GaYang] Maginga 15Ho" channel rules (src/strategy.ts).
- * Code makes the call here, not Jev. Runs every tick on the forming bar.
+ * User strategy: the TradingView "[GaYang] Maginga 15Ho" channel rules (src/strategy.ts),
+ * with the STRATEGY_* variant on top. Code makes the call here, not Jev. It decides every
+ * tick: on the forming bar, or with onBarClose on the last closed bar, which holds the
+ * call steady until the next 15m close.
  */
 export class StrategyModel implements Model {
   readonly name = "strategy";
   private lastReason = "";
+  /** The side a stop just closed. See `rearm`. */
+  private blocked: "long" | "short" | null = null;
 
   constructor(
     /** 15m candles, oldest first. */
     private bars: () => Ohlc[],
     private leverage: number = config.strategyLeverage,
     private now: () => number = Date.now,
+    private strategy = liveStrategy,
   ) {}
 
   async decide(state: TradeState): Promise<ModelDecision> {
     const t0 = performance.now();
-    const bars = withLiveBar(this.bars(), state.mid, this.now(), MAGINGA.periodMs);
-    const call = magingaDecision(bars, state.position.side);
-    const intent = liveIntent(state.position.side, call.intent);
+    const { params: p, rules } = this.strategy;
+    const side = state.position.side;
+    const bars = rules.onBarClose ? closedBars(this.bars(), this.now(), p.periodMs) : withLiveBar(this.bars(), state.mid, this.now(), p.periodMs);
+    const lines = magingaLines(bars, p);
+    const last = bars.at(-1);
+    let call = lines && last
+      ? strategyCall(lines, last, side, state.mid, state.position.entry, rules)
+      : { intent: "hold" as Intent, bias: "long" as Bias, reason: `warming up (${bars.length}/${p.emaLen} bars)`, lines: null };
+    if ("stopped" in call && call.stopped && side !== "flat") this.blocked = side;
+    ({ call, blocked: this.blocked } = rearm(this.blocked, side === "flat", call));
+    const intent = liveIntent(side, call.intent);
     if (call.reason !== this.lastReason) {
       this.lastReason = call.reason;
       const l = call.lines;
       const band = l ? ` (long < ${l.longLine.toFixed(6)}, short > ${l.shortLine.toFixed(6)})` : "";
-      console.log(`${state.coin} strategy ${MAGINGA.timeframe}: ${call.reason}${band}`);
+      console.log(`${state.coin} strategy ${p.timeframe}: ${call.reason}${band}`);
     }
     const decision = pack({
       intent,
       bias: call.bias,
-      leverage: parseLeverage(this.leverage, state.maxLeverage, state.position.leverage ?? 1),
+      // The set STRATEGY_LEVERAGE, not the nearest rung: 15 must not land on 10.
+      leverage: clampLeverage(this.leverage, state.maxLeverage),
       // A hold takes no side, so do not show it as 100% long on the dashboard.
       longP: intent === "hold" ? 0.5 : call.bias === "long" ? 1 : 0,
       shortP: intent === "hold" ? 0.5 : call.bias === "short" ? 1 : 0,
@@ -450,7 +479,7 @@ export class StrategyModel implements Model {
       latencyMs: performance.now() - t0,
       inputTokens: 0,
     });
-    if (call.lines) decision.levels = { long: call.lines.longLine, short: call.lines.shortLine, timeframe: MAGINGA.timeframe };
+    if (call.lines) decision.levels = { long: call.lines.longLine, short: call.lines.shortLine, timeframe: p.timeframe };
     return decision;
   }
 }

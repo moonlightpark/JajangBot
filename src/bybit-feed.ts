@@ -111,13 +111,22 @@ export class BybitFeed {
 
   private async loadCandles() {
     const now = Date.now();
-    const pull = async (interval: "1" | "15", bar: "1m" | "15m") => {
-      const r = await publicGet<{ list?: unknown[][] }>(this.hosts.publicRest, "/v5/market/kline", {
-        category: "linear", symbol: this.symbol, interval, end: now, limit: 1000,
-      });
-      for (const row of r.list ?? []) if (Array.isArray(row)) this.chart.upsertCandle(bybitCandle(row, bar));
+    /** Pages of 1000 back from now until `since` (always at least one). Bybit returns each page newest first. */
+    const pull = async (interval: "1" | "15", bar: "1m" | "15m", since: number) => {
+      let end = now;
+      for (;;) {
+        const r = await publicGet<{ list?: unknown[][] }>(this.hosts.publicRest, "/v5/market/kline", {
+          category: "linear", symbol: this.symbol, interval, end, limit: 1000,
+        });
+        const rows = (r.list ?? []).filter(Array.isArray);
+        for (const row of rows) this.chart.upsertCandle(bybitCandle(row, bar));
+        const oldest = Math.min(...rows.map((row) => Number(row[0])));
+        if (rows.length < 1000 || !(oldest < end) || oldest <= since) break;
+        end = oldest - 1;
+      }
     };
-    await Promise.all([pull("15", "15m"), pull("1", "1m")]);
+    // 15m reaches back CHART_DAYS for the chart; 1m stays one page, as before.
+    await Promise.all([pull("15", "15m", now - config.chartDays * 86_400_000), pull("1", "1m", now)]);
   }
 
   private async pollTicker() {

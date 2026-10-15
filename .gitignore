@@ -7,3 +7,7 @@
 node_modules
 *.log
 .DS_Store
+
+# Backtest candle cache and results
+.backtest-cache/
+backtest-results/

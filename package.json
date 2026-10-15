@@ -26,6 +26,11 @@
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
     "dev:web": "bun run --cwd web dev",
+    "start:jev": "PORT=3002 MODEL=jev DRY_RUN=true bun run src/index.ts",
+    "dev:web:jev": "bun run --cwd web dev:jev",
+    "compare": "bun run src/compare.ts",
+    "backtest": "bun run src/backtest-run.ts",
+    "sweep": "bun run src/backtest-sweep.ts",
     "test": "bun test test"
   }
 }

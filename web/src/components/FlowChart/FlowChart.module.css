@@ -282,6 +282,25 @@
   border-right: 1px solid var(--border);
 }
 
+/* The backtest toggle stands apart from the interval group. */
+.tools .tool:has(+ .toolGap) {
+  border-right: 1px solid var(--border);
+}
+
+.tools .toolGap {
+  margin-left: 6px;
+  border-right: 1px solid var(--border);
+}
+
+/* The time zone pair is its own group: a gap before it, borders shared inside. */
+.tools .tool:has(+ .toolGroup) {
+  border-right: 1px solid var(--border);
+}
+
+.tools .toolGroup {
+  margin-left: 6px;
+}
+
 .toolOn {
   background: var(--ink);
   border-color: var(--ink);
@@ -357,4 +376,97 @@
     font-size: 11px;
     flex: 1 0 auto;
   }
+}
+
+.legBacktest::before {
+  content: "";
+  display: inline-block;
+  margin-right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--backtest);
+  vertical-align: 1px;
+}
+
+.legBtWin::before,
+.legBtLoss::before {
+  content: "";
+  display: inline-block;
+  margin-right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+.legBtWin::before {
+  background: #0a7a3a;
+}
+
+.legBtLoss::before {
+  background: #c2410c;
+}
+
+/* Hover card for a backtest trade on the chart. */
+.btCard {
+  position: absolute;
+  z-index: 4;
+  min-width: 240px;
+  max-width: 300px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--backtest);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  font: 400 11px/1.5 var(--font-mono), monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  pointer-events: none;
+}
+
+.btTrade + .btTrade {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--grid, #e5e5e5);
+}
+
+.btHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 2px;
+  font-weight: 700;
+}
+
+.btKind {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.btRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.btLabel {
+  color: var(--muted);
+}
+
+.btLong,
+.bt_long,
+.bt_win {
+  color: #0a7a3a;
+}
+
+.btShort,
+.bt_short,
+.bt_loss {
+  color: #c2410c;
+}
+
+.btNote {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 10px;
 }

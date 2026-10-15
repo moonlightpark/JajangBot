@@ -24,3 +24,9 @@ test("aggregateFills keeps the heavier side", () => {
   expect(fill.size).toBeCloseTo(0.003, 8);
   expect(fill.price).toBe(11);
 });
+
+test("aggregateFills keeps the fees of the fills it merges", () => {
+  const f = (size: number, feeUsd?: number) => ({ side: "buy" as const, size, price: 100, txHash: null, orderId: 1, simulated: true, ...(feeUsd ? { feeUsd } : {}) });
+  expect(aggregateFills([f(1, 0.02), f(2, 0.04)]).feeUsd).toBeCloseTo(0.06, 9);
+  expect(aggregateFills([f(1)]).feeUsd).toBeUndefined();
+});

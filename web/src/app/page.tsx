@@ -10,7 +10,9 @@ import { deciderLabel, tradingMode } from "@/lib/mode";
 import SleeveStrip from "@/components/SleeveStrip/SleeveStrip";
 import { lastMeaningfulCall } from "@/lib/format";
 import { portfolioBalance, portfolioPnl } from "@/lib/pnl";
+import { useBacktest } from "@/lib/useBacktest";
 import { useFeed } from "@/lib/useFeed";
+import { useLevels } from "@/lib/useLevels";
 import type { BlockEvent, Meta, SleeveFeed } from "@/lib/types";
 import styles from "./page.module.css";
 
@@ -32,6 +34,8 @@ function viewMeta(meta: Meta | null, coin: string): Meta | null {
 
 export default function Page() {
   const feed = useFeed(API_URL);
+  const backtest = useBacktest(API_URL, feed.meta?.startedAt);
+  const channelByCoin = useLevels(API_URL, feed.meta?.startedAt);
   const [picked, setPicked] = useState<string | null>(null);
 
   const coins = useMemo(() => {
@@ -67,6 +71,11 @@ export default function Page() {
   const pnl = useMemo(() => portfolioPnl(latestByCoin), [latestByCoin]);
   const balance = useMemo(() => portfolioBalance(latestByCoin), [latestByCoin]);
   const hasBooks = coins.some((c) => latestByCoin[c]);
+  // Dry run balances start from the backtest's closed PnL; show how much so balance adds up.
+  const backtestUsd = useMemo(() => {
+    const rows = feed.meta?.sleeves ?? [];
+    return rows.some((s) => s.backtestUsd) ? rows.reduce((sum, s) => sum + (s.backtestUsd ?? 0), 0) : null;
+  }, [feed.meta]);
   const waiting = !feed.meta;
 
   return (
@@ -76,6 +85,7 @@ export default function Page() {
         balance={hasBooks ? balance : null}
         unrealized={hasBooks ? pnl.unrealized : null}
         realized={hasBooks ? pnl.realized : null}
+        backtest={hasBooks ? backtestUsd : null}
         mode={meta ? tradingMode(meta, meta.wallet) : null}
         decider={meta ? deciderLabel(meta.model) : null}
       />
@@ -95,6 +105,8 @@ export default function Page() {
               events={sleeve.events}
               latest={sleeve.latest}
               meta={meta}
+              backtest={backtest}
+              channelPoints={channelByCoin[coin]}
               onNeedMoreTape={feed.loadTape}
             />
           </div>
@@ -112,6 +124,7 @@ export default function Page() {
         meta={meta}
         onSelect={setPicked}
         onNeedMoreTape={feed.loadTape}
+        backtest={backtest}
         waiting={waiting}
       />
     </div>

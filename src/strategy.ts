@@ -31,6 +31,16 @@ export const MAGINGA = {
   leverage: 3,
 } as const;
 
+/** The knobs of the channel. The live strategy uses MAGINGA; the backtest sweep tries others. */
+export interface MagingaParams {
+  timeframe: string;
+  periodMs: number;
+  emaLen: number;
+  shortBand: number;
+  longBand: number;
+  leverage: number;
+}
+
 /** Pine `ema`: SMA of the first `len` values as the seed, then alpha = 2 / (len + 1). NaN until seeded. */
 export function emaSeries(xs: number[], len: number): number[] {
   const out = new Array<number>(xs.length).fill(Number.NaN);
@@ -55,7 +65,7 @@ export interface MagingaLines {
 }
 
 /** Channel lines on the last bar. Null until there are enough bars to seed the EMA. */
-export function magingaLines(bars: Ohlc[], p = MAGINGA): MagingaLines | null {
+export function magingaLines(bars: Ohlc[], p: MagingaParams = MAGINGA): MagingaLines | null {
   if (bars.length < p.emaLen) return null;
   const emaHigh = emaSeries(bars.map((b) => b.high), p.emaLen).at(-1)!;
   const emaLow = emaSeries(bars.map((b) => b.low), p.emaLen).at(-1)!;
@@ -67,6 +77,20 @@ export function magingaLines(bars: Ohlc[], p = MAGINGA): MagingaLines | null {
   };
 }
 
+/**
+ * The channel at the close of every bar, oldest first, from the bar where the EMA is
+ * seeded. Same values `magingaLines` gives on each prefix, in one pass.
+ */
+export function magingaChannel(bars: Ohlc[], p: MagingaParams = MAGINGA): { ts: number; long: number; short: number }[] {
+  const highs = emaSeries(bars.map((b) => b.high), p.emaLen);
+  const lows = emaSeries(bars.map((b) => b.low), p.emaLen);
+  const out: { ts: number; long: number; short: number }[] = [];
+  for (let i = p.emaLen - 1; i < bars.length; i++) {
+    out.push({ ts: bars[i]!.ts, long: lows[i]! * (1 - p.longBand), short: highs[i]! * (1 + p.shortBand) });
+  }
+  return out;
+}
+
 export interface MagingaCall {
   intent: Intent;
   bias: Bias;
@@ -76,10 +100,15 @@ export interface MagingaCall {
 }
 
 /** One decision on the last bar (the forming bar when run every tick). */
-export function magingaDecision(bars: Ohlc[], side: "long" | "short" | "flat", p = MAGINGA): MagingaCall {
+export function magingaDecision(bars: Ohlc[], side: "long" | "short" | "flat", p: MagingaParams = MAGINGA): MagingaCall {
   const lines = magingaLines(bars, p);
   const last = bars.at(-1);
   if (!lines || !last) return { intent: "hold", bias: "long", reason: `warming up (${bars.length}/${p.emaLen} bars)`, lines };
+  return magingaRule(lines, last, side);
+}
+
+/** The order rules against lines already computed. The backtest calls this too, so both share one rule set. */
+export function magingaRule(lines: MagingaLines, last: Ohlc, side: "long" | "short" | "flat"): MagingaCall {
   const detectShort = last.high > lines.shortLine;
   const detectLong = last.close < lines.longLine;
   if (side === "short" && detectLong) return { intent: "close", bias: "short", reason: "close below long line, take short profit", lines };
@@ -87,6 +116,57 @@ export function magingaDecision(bars: Ohlc[], side: "long" | "short" | "flat", p
   if (side === "flat" && detectShort && !detectLong) return { intent: "open", bias: "short", reason: "high above short line", lines };
   if (side === "flat" && detectLong && !detectShort) return { intent: "open", bias: "long", reason: "close below long line", lines };
   return { intent: "hold", bias: side === "short" ? "short" : "long", reason: "inside the channel", lines };
+}
+
+/** Changes on top of the script's rules. Defaults (none, "opposite", false) are the script as written. */
+export interface StrategyRules {
+  /** Close once price is this fraction against the entry (0.05 = 5%). null: no stop, as in the script. */
+  stopPct: number | null;
+  /** "opposite": close at the far line (script). "mid": close once the bar closes past the channel middle. */
+  exit: "opposite" | "mid";
+  /** true: read the last closed 15m bar, as TradingView does by default. false: the forming bar every tick. */
+  onBarClose: boolean;
+}
+
+export const SCRIPT_RULES: StrategyRules = { stopPct: null, exit: "opposite", onBarClose: false };
+
+/**
+ * The full call, live and in the backtest: stop loss first, then the script's lines,
+ * then the channel-middle exit. `price` is the price this tick; `last` is the bar the
+ * lines are read on (forming, or the last closed one with onBarClose).
+ */
+export function strategyCall(
+  lines: MagingaLines,
+  last: Ohlc,
+  side: "long" | "short" | "flat",
+  price: number,
+  entry: number | null,
+  rules: StrategyRules,
+): MagingaCall & { stopped?: boolean } {
+  if (side !== "flat" && rules.stopPct && entry && entry > 0) {
+    const hit = side === "long" ? price <= entry * (1 - rules.stopPct) : price >= entry * (1 + rules.stopPct);
+    if (hit) return { intent: "close", bias: side, reason: `stop loss ${+(rules.stopPct * 100).toFixed(2)}%`, lines, stopped: true };
+  }
+  const call = magingaRule(lines, last, side);
+  if (rules.exit === "mid" && side !== "flat" && call.intent !== "close") {
+    const mid = (lines.emaHigh + lines.emaLow) / 2;
+    if (side === "long" ? last.close >= mid : last.close <= mid) {
+      return { intent: "close", bias: side, reason: `channel middle, take ${side} profit`, lines };
+    }
+  }
+  return call;
+}
+
+/**
+ * After a stop, that side does not re-enter until its signal has cleared once, so a
+ * stop inside a strong move is not followed by the same entry a minute later.
+ */
+export function rearm(blocked: "long" | "short" | null, flat: boolean, call: MagingaCall): { call: MagingaCall; blocked: "long" | "short" | null } {
+  if (!blocked || !flat) return { call, blocked };
+  if (call.intent === "open" && call.bias === blocked) {
+    return { call: { ...call, intent: "hold", reason: `waiting after stop, ${call.reason}` }, blocked };
+  }
+  return { call, blocked: null };
 }
 
 /**
@@ -101,4 +181,11 @@ export function withLiveBar(bars: Ohlc[], mid: number, now: number, periodMs: nu
     return [...bars.slice(0, -1), { ...last, high: Math.max(last.high, mid), low: Math.min(last.low, mid), close: mid }];
   }
   return [...bars, { ts: start, open: last?.close ?? mid, high: mid, low: mid, close: mid }];
+}
+
+/** Only the bars that have closed by `now`. The live feed also carries the forming one. */
+export function closedBars(bars: Ohlc[], now: number, periodMs: number): Ohlc[] {
+  let n = bars.length;
+  while (n > 0 && bars[n - 1]!.ts + periodMs > now) n--;
+  return n === bars.length ? bars : bars.slice(0, n);
 }

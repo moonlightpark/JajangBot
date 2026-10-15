@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import type { Ohlc } from "../src/chart";
-import { resolveModel } from "../src/config";
+import { resolveEmaLen, resolveModel, resolveStrategyExit } from "../src/config";
 import { StrategyModel, type TradeState } from "../src/model";
-import { emaSeries, MAGINGA, magingaDecision, magingaLines, withLiveBar } from "../src/strategy";
+import { emaSeries, MAGINGA, magingaChannel, magingaDecision, magingaLines, SCRIPT_RULES, withLiveBar, type StrategyRules } from "../src/strategy";
 
 const M = 60_000;
 const Q = 15 * M;
@@ -80,10 +80,12 @@ const state = (mid: number, side: "long" | "short" | "flat"): TradeState => ({
   maxLeverage: 50,
   coin: "BTC",
 } as TradeState);
+/** The script as written. Passed explicitly so the user's .env STRATEGY_* (Bun loads it in tests too) never leaks in. */
+const SCRIPT = { params: MAGINGA, rules: SCRIPT_RULES };
 
 test("StrategyModel decides every tick from the live price, at the strategy leverage", async () => {
   const bars = flat(200, 100, Q);
-  const m = new StrategyModel(() => bars, 3, () => 199 * Q + 1_000);
+  const m = new StrategyModel(() => bars, 3, () => 199 * Q + 1_000, SCRIPT);
   const spike = await m.decide(state(102, "flat"));
   expect(spike).toMatchObject({ action: "sell", intent: "open", bias: "short", leverage: 3 });
   const calm = await m.decide(state(100, "flat"));
@@ -92,12 +94,84 @@ test("StrategyModel decides every tick from the live price, at the strategy leve
   expect(exit).toMatchObject({ action: "sell", intent: "close" });
 });
 
+test("StrategyModel uses STRATEGY_LEVERAGE as set, held to the coin max", async () => {
+  const at = (lev: number) => new StrategyModel(() => flat(200, 100, Q), lev, () => 199 * Q + 1_000, SCRIPT).decide(state(102, "flat"));
+  expect((await at(15)).leverage).toBe(15);
+  expect((await at(7)).leverage).toBe(7);
+  expect((await at(80)).leverage).toBe(50);
+});
+
 test("StrategyModel reports the channel lines so the chart can draw them", async () => {
-  const m = new StrategyModel(() => flat(200, 100, Q), 3, () => 199 * Q + 1_000);
+  const m = new StrategyModel(() => flat(200, 100, Q), 3, () => 199 * Q + 1_000, SCRIPT);
   const d = await m.decide(state(100, "flat"));
   expect(d.levels!.timeframe).toBe("15m");
   expect(d.levels!.short).toBeGreaterThan(100);
   expect(d.levels!.long).toBeLessThan(100);
-  const warm = await new StrategyModel(() => flat(10, 100, Q), 3, () => 9 * Q).decide(state(100, "flat"));
+  const warm = await new StrategyModel(() => flat(10, 100, Q), 3, () => 9 * Q, SCRIPT).decide(state(100, "flat"));
   expect(warm.levels).toBeUndefined();
+});
+
+test("magingaChannel matches magingaLines on every prefix", () => {
+  const bars = Array.from({ length: 140 }, (_, i) => {
+    const px = 100 + Math.sin(i / 9) * 4;
+    return { ts: i * Q, open: px, high: px * 1.003, low: px * 0.997, close: px };
+  });
+  const ch = magingaChannel(bars);
+  expect(ch).toHaveLength(140 - 124);
+  for (const n of [125, 131, 140]) {
+    const l = magingaLines(bars.slice(0, n))!;
+    const c = ch.find((x) => x.ts === bars[n - 1]!.ts)!;
+    expect(c.long).toBeCloseTo(l.longLine, 9);
+    expect(c.short).toBeCloseTo(l.shortLine, 9);
+  }
+  expect(magingaChannel(bars.slice(0, 100))).toEqual([]);
+});
+
+const withEntry = (mid: number, side: "long" | "short", entry: number): TradeState =>
+  ({ ...state(mid, side), position: { side, leverage: null, entry } } as unknown as TradeState);
+const variant = (rules: Partial<StrategyRules>, emaLen = 125) => ({ params: { ...MAGINGA, emaLen }, rules: { ...SCRIPT_RULES, ...rules } });
+// Flat 15m bars at 100: short line ~101.82, long line ~98.18, middle ~100.
+const NOW = 199 * Q + 1_000;
+
+test("StrategyModel stop loss closes past the set percent, then waits for the signal to clear before re-entering", async () => {
+  const m = new StrategyModel(() => flat(200, 100, Q), 15, () => NOW, variant({ stopPct: 0.05 }));
+  expect(await m.decide(withEntry(99.7, "short", 95))).toMatchObject({ intent: "hold" }); // 4.9% against
+  expect(await m.decide(withEntry(100, "short", 95))).toMatchObject({ intent: "close", bias: "short" }); // 5.3%
+  expect(await m.decide(state(102, "flat"))).toMatchObject({ intent: "hold" }); // short signal, but just stopped
+  expect(await m.decide(state(100, "flat"))).toMatchObject({ intent: "hold" }); // signal cleared
+  expect(await m.decide(state(102, "flat"))).toMatchObject({ intent: "open", bias: "short" });
+});
+
+test("StrategyModel mid exit takes profit at the channel middle", async () => {
+  const m = new StrategyModel(() => flat(200, 100, Q), 15, () => NOW, variant({ exit: "mid" }));
+  expect(await m.decide(withEntry(99.9, "long", 98))).toMatchObject({ intent: "hold" });
+  expect(await m.decide(withEntry(100.1, "long", 98))).toMatchObject({ intent: "close", bias: "long" });
+  const script = new StrategyModel(() => flat(200, 100, Q), 15, () => NOW, SCRIPT);
+  expect(await script.decide(withEntry(100.1, "long", 98))).toMatchObject({ intent: "hold" });
+});
+
+test("StrategyModel onBarClose reads the last closed 15m bar, not the forming one", async () => {
+  const bars = withLast(flat(200, 100, Q), { high: 102 }); // bar 199 spikes while forming
+  const forming = new StrategyModel(() => bars, 15, () => NOW, variant({}));
+  expect(await forming.decide(state(100, "flat"))).toMatchObject({ intent: "open", bias: "short" });
+  const atClose = new StrategyModel(() => bars, 15, () => NOW, variant({ onBarClose: true }));
+  expect(await atClose.decide(state(100, "flat"))).toMatchObject({ intent: "hold" });
+  const closed = new StrategyModel(() => bars, 15, () => 200 * Q + 1_000, variant({ onBarClose: true }));
+  expect(await closed.decide(state(100, "flat"))).toMatchObject({ intent: "open", bias: "short" });
+});
+
+test("StrategyModel EMA length comes from the variant", async () => {
+  const short = await new StrategyModel(() => flat(150, 100, Q), 15, () => 149 * Q + 1_000, variant({}, 200)).decide(state(100, "flat"));
+  expect(short.levels).toBeUndefined(); // 150 bars < 200: warming up
+  const ok = await new StrategyModel(() => flat(250, 100, Q), 15, () => 249 * Q + 1_000, variant({}, 200)).decide(state(100, "flat"));
+  expect(ok.levels).toBeDefined();
+});
+
+test("STRATEGY_* settings parse and reject bad values", () => {
+  expect(resolveStrategyExit(undefined)).toBe("opposite");
+  expect(resolveStrategyExit("MID")).toBe("mid");
+  expect(() => resolveStrategyExit("half")).toThrow();
+  expect(resolveEmaLen(undefined)).toBe(125);
+  expect(resolveEmaLen("200")).toBe(200);
+  expect(() => resolveEmaLen("1.5")).toThrow();
 });

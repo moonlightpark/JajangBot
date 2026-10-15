@@ -190,3 +190,15 @@ test("no MAX_POSITION_USD means no cap", () => {
     side: "buy", size: 1, reduceOnly: false, taker: false,
   });
 });
+
+test("a dry run reports its own balance: its share of BANKROLL_USD plus PnL after fees", async () => {
+  const model = new ScriptModel();
+  const { trader, events } = desk(model);
+  trader.bankrollUsd = 100;
+  model.next = packed({ intent: "hold", bias: "long", action: "hold" });
+  await trader.onBlock(1);
+  const e = events.at(-1)!;
+  expect(e.accountValue).toBe(100);
+  expect(e.withdrawable).toBe(100);
+  expect(e.totals.pnlPct).toBe(0);
+});

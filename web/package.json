@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
+    "dev:jev": "NEXT_DIST_DIR=.next-jev NEXT_PUBLIC_API_URL=http://localhost:3002 next dev -p 3003",
     "build": "next build",
     "start": "next start -p 3001"
   },

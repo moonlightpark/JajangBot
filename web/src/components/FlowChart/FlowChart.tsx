@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BlockEvent, Meta, PricePoint } from "@/lib/types";
 import { fmtCall, fmtPrice } from "@/lib/format";
+import { backtestMarks } from "@/lib/backtest";
+import type { BacktestReport, ChannelPoint } from "@/lib/bot-types";
+import { channelForView } from "@/lib/levels";
+import { DEFAULT_ZONE, ZONES } from "@/lib/chartTime";
 import { barsForView, fillMarks, type BarSize } from "@/lib/ohlc";
 import { Bone } from "@/components/Skeleton/Skeleton";
 import CandlePane from "./CandlePane";
@@ -16,9 +20,11 @@ const INTERVALS: { id: BarSize; label: string }[] = [
   { id: "5m", label: "5m" },
   { id: "15m", label: "15m" },
   { id: "1H", label: "1H" },
+  { id: "4H", label: "4H" },
+  { id: "1D", label: "1D" },
 ];
 
-const DEFAULT_INTERVAL: BarSize = "5m";
+const DEFAULT_INTERVAL: BarSize = "15m";
 const VISIBLE_BARS = 80;
 
 export default function FlowChart({
@@ -26,15 +32,25 @@ export default function FlowChart({
   events,
   latest,
   meta,
+  backtest = null,
+  channelPoints,
   onNeedMoreTape,
 }: {
   tape?: PricePoint[];
   events: BlockEvent[];
   latest: BlockEvent | null;
   meta?: Meta | null;
+  /** Last `bun run backtest` run. Its trades are simulated and drawn apart from real fills. */
+  backtest?: BacktestReport | null;
+  /** MODEL=strategy channel per 15m bar for this coin, from GET /levels. */
+  channelPoints?: ChannelPoint[];
   onNeedMoreTape?: () => void;
 }) {
   const [interval, setIntervalId] = useState<BarSize>(DEFAULT_INTERVAL);
+  const [showBacktest, setShowBacktest] = useState(true);
+  const [zone, setZone] = useState(DEFAULT_ZONE);
+  const btCoin = meta?.coin ?? "BTC";
+  const btTrades = useMemo(() => backtest?.tradesByCoin[btCoin] ?? [], [backtest, btCoin]);
 
   useEffect(() => {
     setIntervalId(DEFAULT_INTERVAL);
@@ -48,11 +64,13 @@ export default function FlowChart({
     const src = tape ?? [];
     const candles = barsForView(src, interval);
     if (!candles.length) return null;
+    const times = new Set(candles.map((c) => c.time));
     return {
       candles,
       marks: fillMarks(src, interval),
+      backtest: showBacktest ? backtestMarks(btTrades, interval, times) : [],
     };
-  }, [tape, interval]);
+  }, [tape, interval, showBacktest, btTrades]);
 
   const shown = latest ?? events[events.length - 1] ?? null;
   const d = shown?.decision ?? null;
@@ -74,14 +92,21 @@ export default function FlowChart({
     pos && pos.side !== "flat" && pos.entryPrice != null && pos.entryPrice > 0
       ? { price: pos.entryPrice, side: pos.side }
       : null;
-  // The strategy runs on 15m candles, so its lines only show on the 15m view.
-  // A late tick carries no levels, so keep the last lines the strategy reported.
+  // The channel this tick. A late tick carries no levels, so keep the last lines the strategy reported.
   const levels = useMemo(() => {
-    if (interval !== "15m") return null;
     if (latest?.levels) return latest.levels;
     for (let i = events.length - 1; i >= 0; i--) if (events[i]?.levels) return events[i]!.levels!;
     return null;
-  }, [latest, events, interval]);
+  }, [latest, events]);
+  // Bar times change only when a bar is added or the view changes, not on every price print.
+  const candles = model?.candles;
+  const timesKey = candles?.length ? `${interval}:${candles.length}:${candles[0]!.time}:${candles.at(-1)!.time}` : "";
+  const times = useMemo(() => candles?.map((c) => c.time) ?? [], [timesKey]);
+  // The strategy runs on 15m candles; other views show the 15m channel at each bar's close.
+  const channel = useMemo(
+    () => channelForView(channelPoints ?? [], times, interval, levels),
+    [channelPoints, times, interval, levels],
+  );
 
   return (
     <div className={styles.wrap}>
@@ -111,12 +136,15 @@ export default function FlowChart({
               key={coin}
               candles={model.candles}
               marks={model.marks}
+              backtest={model.backtest}
+              coin={coin}
+              backtestLeverage={backtest?.leverageByCoin[coin] ?? 1}
               entry={entry}
-              levels={levels}
-              fitLevels={levels != null}
+              channel={channel}
               rangeKey={`${coin}:${interval}`}
               visibleBars={VISIBLE_BARS}
               secondsVisible={interval === "1s"}
+              offsetH={zone.offsetH}
               formatPrice={fmtPrice}
             />
             <div className={styles.tl}>
@@ -140,7 +168,15 @@ export default function FlowChart({
               <span className={styles.legBuy}>buy</span>
               <span className={styles.legSell}>sell</span>
               <span className={styles.legEntry}>entry</span>
-              {levels ? <span className={styles.legLevels}>strategy {levels.timeframe}</span> : null}
+              {channel ? <span className={styles.legLevels}>strategy {levels?.timeframe ?? "15m"}</span> : null}
+              {showBacktest && btTrades.length ? (
+                <>
+                  <span className={styles.legBacktest}>BT entry</span>
+                  <span className={styles.legBtWin}>BT win</span>
+                  <span className={styles.legBtLoss}>BT loss</span>
+                  <span>(simulated, hover for details)</span>
+                </>
+              ) : null}
             </div>
           </>
         )}
@@ -157,6 +193,29 @@ export default function FlowChart({
             {s.label}
           </button>
         ))}
+        {ZONES.map((z, i) => (
+          <button
+            key={z.id}
+            type="button"
+            className={`${styles.tool} ${i === 0 ? styles.toolGroup : ""} ${zone.id === z.id ? styles.toolOn : ""}`}
+            aria-pressed={zone.id === z.id}
+            title="Chart time zone. Bars stay on UTC boundaries; labels move."
+            onClick={() => setZone(z)}
+          >
+            {z.label}
+          </button>
+        ))}
+        {btTrades.length ? (
+          <button
+            type="button"
+            className={`${styles.tool} ${styles.toolGap} ${showBacktest ? styles.toolOn : ""}`}
+            aria-pressed={showBacktest}
+            title="Simulated trades from bun run backtest (TradingView strategy rules on past candles). Not real fills, not Jev."
+            onClick={() => setShowBacktest((v) => !v)}
+          >
+            BT
+          </button>
+        ) : null}
       </div>
     </div>
   );

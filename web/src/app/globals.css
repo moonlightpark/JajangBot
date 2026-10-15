@@ -20,6 +20,8 @@
   --sell-ink: #cc0000;
   --sell-bar: #cc0000;
   --sell-bar-dim: #f0c8c8;
+  /* Simulated backtest trades on the chart. Kept off buy/sell green and red. */
+  --backtest: #1f5fd6;
 
   --late: #b8860b;
   --late-ink: #b8860b;

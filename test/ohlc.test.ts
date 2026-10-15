@@ -109,3 +109,18 @@ test("canUpdateInPlace only allows appending or rewriting the newest bar", () =>
   expect(canUpdateInPlace(shown, { ...shown, count: 79 })).toBe(false);
   expect(canUpdateInPlace(shown, { ...shown, stem: "900" })).toBe(false);
 });
+
+test("barsForView 1D rolls a whole day of 15m and 1m, not just the hours 1m covers", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const tape: PricePoint[] = [
+    { ts: 0, mid: 100, open: 100, high: 110, low: 95, close: 100, bar: "15m" },
+    { ts: day + 15 * 60_000, mid: 101, open: 100, high: 120, low: 99, close: 101, bar: "15m" },
+    { ts: day + 30 * 60_000, mid: 102, open: 101, high: 103, low: 90, close: 102, bar: "1m" },
+    { ts: day + 31 * 60_000, mid: 104, open: 102, high: 105, low: 101, close: 104, bar: "1m" },
+  ];
+  expect(barsForView(tape, "1D")).toEqual([
+    { time: 0, open: 100, high: 110, low: 95, close: 100 },
+    { time: day / 1000, open: 100, high: 120, low: 90, close: 104 },
+  ]);
+  expect(barsForView(tape, "4H").map((c) => c.time)).toEqual([0, day / 1000]);
+});

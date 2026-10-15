@@ -159,14 +159,63 @@ STRATEGY_LEVERAGE=3      # 원본 스크립트 라벨의 "Leverage x3"
 
 **원본과 다른 점, 알아둘 점**
 
-- **판단 시점**: 원본은 봉이 마감될 때 판단합니다(TradingView 기본값). 이 봇은 매 틱(`TICK_MS`)마다, 형성 중인 15분봉에 현재가를 반영해 판단합니다(TradingView의 `calc_on_every_tick`과 같음). 봉 중간에 라인을 찍고 돌아오면 원본에서는 신호가 없지만 여기서는 진입합니다.
+- **판단 시점**: 원본은 봉이 마감될 때 판단합니다(TradingView 기본값). 이 봇은 기본으로 매 틱(`TICK_MS`)마다, 형성 중인 15분봉에 현재가를 반영해 판단합니다(TradingView의 `calc_on_every_tick`과 같음). `STRATEGY_ON_BAR_CLOSE=true`면 매 틱 판단하되 마지막으로 마감된 15분봉을 읽으므로, 신호는 15분봉이 마감될 때만 바뀝니다.
 - **빠진 계산**: Squeeze Momentum, CMF, DEMA, 2차 라인(3.82%), 손절과 목표가는 원본에서 계산만 하고 주문 조건에 쓰이지 않아 옮기지 않았습니다.
-- **손절이 없습니다**: 원본 그대로, 포지션은 반대쪽 라인에 닿아야만 청산됩니다. `MAX_LEVERAGE`를 꼭 설정하세요.
+- **손절**: 원본에는 손절이 없습니다. `STRATEGY_STOP_PCT`를 설정하면 봇이 매 틱 현재가로 확인해 진입가 대비 그만큼 불리하면 청산합니다(Bybit 서버 손절이 아니라서 봇이 꺼져 있으면 동작하지 않음). 손절 뒤에는 같은 방향 신호가 한 번 꺼질 때까지 다시 진입하지 않습니다.
+- **변형 설정**: 아래 `STRATEGY_*` 값으로 원본 규칙을 바꿀 수 있습니다. 비우면 원본 그대로입니다. 백테스트(`bun run backtest`, `bun run sweep`)와 차트 전략 라인도 같은 설정을 씁니다.
 - **주문 크기**: 원본의 `qty = 1`(1코인) 대신 `QUOTE_USD`(Bybit 최소 수량 이상)로 주문합니다.
 - **주문 방식**: 원본은 시장가로 진입하지만, 이 봇은 진입을 PostOnly 지정가로 걸어 둡니다. 가격이 빠르게 지나가면 체결되지 않을 수 있고, 신호가 사라지면 주문을 취소합니다.
 - **시작 직후**: EMA 계산에 봉 125개가 필요합니다. 시작할 때 Bybit에서 캔들 1000개를 불러오므로 바로 판단합니다.
-- **차트 표시**: 대시보드 차트를 **15m으로 볼 때만** 숏 라인(빨간 점선)과 롱 라인(초록 점선)이 표시됩니다. 다른 주기 화면에서는 표시하지 않습니다.
+- **차트 표시**: 숏 라인(빨간 점선)과 롱 라인(초록 점선)이 가격을 따라 과거까지 그려집니다(봇의 `GET /levels`). 모든 주기에서 보이며, 값은 항상 15분봉으로 계산합니다. 1H, 4H, 1D 봉에는 그 봉이 끝나는 15분봉의 값을, 1m, 5m 봉에는 그 봉이 속한 15분봉의 값을 씁니다. 가장 최근 봉은 매 틱 판단에 쓴 값입니다. `MODEL=strategy`일 때만 표시합니다.
 - 봇 로그에 판단 이유가 바뀔 때마다 `BTC strategy 15m: inside the channel (long < ..., short > ...)`처럼 현재 라인 값이 출력됩니다.
+
+### 백테스트 (과거 데이터로 전략 실행)
+
+`MODEL=strategy` 규칙을 과거 Bybit 1분봉으로 다시 돌려 봅니다. 주문은 내지 않습니다.
+
+```sh
+bun run backtest                               # 최근 3개월, .env의 COINS
+bun run backtest --months=6
+bun run backtest --from=2026-07-01 --coins=BTC,ETH
+```
+
+- 1분봉 마감마다 한 번 판단합니다(`TICK_MS=60000`과 같음). 형성 중인 15분봉은 그때까지의 1분봉으로 만들고, 판단은 실제 봇과 같은 `magingaRule`이 합니다.
+- EMA는 실제 봇처럼 시작 전 15분봉 1000개로 미리 계산합니다.
+- 진입은 판단 시점 가격에 PostOnly로 걸고, 다음 1분 동안 그 가격을 뚫고 지나가야 체결됩니다(메이커 수수료). 신호가 이어지면 다음 틱에 새 가격으로 다시 걸고, 관망이 되면 취소합니다. 청산은 판단 시점 가격에 바로 체결합니다(테이커 수수료).
+- 주문 크기, 레버리지는 실제 봇과 같습니다(`QUOTE_USD`, `STRATEGY_LEVERAGE`, `MAX_LEVERAGE`).
+- 수수료는 Bybit 기본값 메이커 0.02%, 테이커 0.055%입니다. `BACKTEST_MAKER_FEE`, `BACKTEST_TAKER_FEE`(퍼센트)로 바꿀 수 있습니다.
+- **반영하지 않는 것**: 스프레드와 슬리피지, 펀딩비, 청산(강제 청산). 그래서 손실 거래는 청산 없이 끝까지 버틴 것으로 계산합니다. 결과의 `liquidation risk (isolated)`는 격리 마진이었다면 청산됐을 만큼 불리하게 움직인 거래 수입니다.
+- 결과 요약은 화면에, 거래 내역은 `backtest-results/<시작일>_<종료일>.csv`(시각은 UTC)에 저장합니다. 받은 캔들은 `.backtest-cache/`에 저장해 다음 실행이 빠릅니다.
+- **차트 표시**: 마지막 실행 결과는 `backtest-results/latest.json`에도 저장되고, 봇이 `GET /backtest`로 내보냅니다. 대시보드 차트에 파란 표시로 나옵니다(진입 `BT long` / `BT short`, 청산 `BT +$1.26`처럼 손익, 보유 중이면 `BT long open`). 실제 체결(초록, 빨강 화살표)과 구분되고, 범례에 "strategy backtest (simulated)"로 표시됩니다. 차트 아래 `BT` 버튼으로 끄고 켭니다. 아래쪽 **History** 탭에도 청산된 백테스트 거래가 봇 거래와 함께 날짜순으로 나오고(Source 열 `backtest`, 파란색), 위쪽에 기간, 거래 수, 승률, 수수료 뺀 손익 요약이 표시됩니다. History의 `Backtest` 버튼으로 숨길 수 있습니다. 백테스트를 다시 돌린 뒤에는 봇 재시작 후 반영됩니다(페이지는 봇 시작 시점마다 한 번 읽음).
+
+### 전략 변형 비교 (sweep)
+
+전략 라인 규칙의 여러 변형을 과거 데이터로 비교합니다. 주문은 내지 않습니다.
+
+```sh
+bun run sweep                        # 12개월: 앞 9개월로 고르고, 뒤 3개월로 확인
+bun run sweep --months=12 --test-months=6
+```
+
+- 변형 192가지: EMA 길이(75, 125, 200), 밴드 폭(1%, 1.618%, 2.5%, 3.82%), 손절(없음, 2%, 3%, 5%), 청산(반대 라인, 채널 중간), 판단 시점(매 1분, 15분봉 마감).
+- 앞 구간(train)에서 성적이 좋은 변형을 고른 뒤, 고를 때 보지 않은 뒤 구간(test)에서도 이익이 나는지 봅니다. 과거에만 맞춘 변형을 걸러내기 위해서입니다.
+- 주문 방식과 수수료는 `bun run backtest`와 같습니다. 결과는 `backtest-results/sweep_<시작일>_<종료일>_test<N>m.csv`에 저장됩니다.
+- 실제 봇의 설정은 바꾸지 않습니다. `손절`, `채널 중간 청산`, `15분봉 마감 판단`은 아직 백테스트에만 있습니다.
+
+## 전략 봇과 Jev 봇 나란히 비교
+
+같은 코드로 봇을 두 개 띄워 같은 시간 동안 비교합니다. 두 번째 봇은 항상 dry run이라 실제 주문을 내지 않습니다.
+
+```sh
+bun run start          # 전략 봇 (.env 설정), :3000, 대시보드 bun run dev:web → :3001
+bun run start:jev      # Jev 봇 (MODEL=jev, DRY_RUN=true), :3002
+bun run dev:web:jev    # Jev 봇 대시보드 → :3003
+bun run compare        # 두 봇의 balance, 손익, 수수료, 체결, Jev 비용을 한 표로
+```
+
+- Jev 봇에는 `.env`에 `TYPESAFE_API_KEY`(또는 `JEV_PROVIDER=gateway`와 `AI_GATEWAY_API_KEY`)가 필요합니다. 없으면 시작하자마자 이유를 알려 주고 멈춥니다. 전략 봇은 이 키를 쓰지 않습니다.
+- 두 봇 모두 `BANKROLL_USD`($500)로 시작합니다. 전략 봇의 balance에는 백테스트 손익도 들어 있으므로(Jev 봇에는 없음), 비교는 `compare`의 `live pnl`(각 봇이 시작한 뒤의 수수료 뺀 손익)로 합니다. 두 봇을 같은 시각에 시작하면 공정합니다.
+- 다른 주소의 봇을 비교하려면 `COMPARE_A`, `COMPARE_B`에 주소를 넣습니다.
 
 ## 실제 Jev 사용
 
@@ -230,11 +279,17 @@ MAX_LEVERAGE=5
 | `DRY_RUN` | `false` | `true`면 모든 슬리브를 시뮬레이션 |
 | `MODEL` | `mock` | `mock`, `jev`, `strategy`. `jev`는 TypeSafe 또는 Gateway 키 필요 |
 | `STRATEGY_LEVERAGE` | `3` | `MODEL=strategy`의 진입 레버리지 |
+| `STRATEGY_EMA_LEN` | `125` | 채널 EMA 길이 |
+| `STRATEGY_STOP_PCT` | 비어 있음 | 손절 %. 비우면 손절 없음 |
+| `STRATEGY_EXIT` | `opposite` | 청산 위치. `opposite`(반대 라인) 또는 `mid`(채널 중간) |
+| `STRATEGY_ON_BAR_CLOSE` | `false` | `true`면 마감된 15분봉으로 판단 |
 | `JEV_PROVIDER` | `typesafe` | `typesafe` 또는 `gateway` |
 | `TYPESAFE_API_KEY` | 비어 있음 | 공식 TypeSafe 키 |
 | `AI_GATEWAY_API_KEY` | 비어 있음 | Vercel AI Gateway 키 |
 | `TICK_MS` | `2000` | 판단과 재호가 주기 |
 | `PRICE_MS` | `200` | 차트와 중간가 갱신 주기. Jev를 호출하지 않음 |
+| `BANKROLL_USD` | `500` | dry run 시작 잔액(전체). 코인 수로 똑같이 나눔. 상단 balance는 이 금액에 청산된 백테스트 거래의 손익(`backtest-results/latest.json`, 봇 시작 때 읽음)과 봇의 수수료 뺀 손익을 더한 값이고, 상단 `backtest`에 포함된 금액이 따로 표시됨. 실제 키가 있으면 Bybit 계좌 잔액(백테스트 미포함) |
+| `CHART_DAYS` | `92` | 시작할 때 불러오는 15분봉 기간(일). 차트의 15m, 1H, 4H, 1D 화면이 이만큼 과거까지 보임. 1m, 5m은 최근 약 16시간 |
 | `QUOTE_USD` | `40` | 틱당 진입 주문 금액. Bybit 최소 수량보다 작으면 최소 수량으로 주문 |
 | `CLOSE_SLIPPAGE_BPS` | `5` | 청산 주문이 호가를 넘기는 정도 |
 | `MAX_POSITION_USD` | 비어 있음 | 코인별 최대 포지션 금액. 비어 있으면 한도 없음 |

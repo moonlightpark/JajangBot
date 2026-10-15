@@ -323,6 +323,7 @@ function parseSleeves(raw: unknown): Meta["sleeves"] {
       pair: s.pair,
       label: s.label,
       wallet: typeof s.wallet === "string" ? s.wallet : null,
+      ...(typeof s.backtestUsd === "number" && Number.isFinite(s.backtestUsd) ? { backtestUsd: s.backtestUsd } : {}),
     });
   }
   return out;
@@ -481,6 +482,9 @@ export function useFeed(apiUrl: string): FeedState & { loadTape: () => void } {
       if (!Object.keys(next.historyByCoin).length && !Object.keys(next.tapeByCoin).length && !next.meta) return;
       haveSnapshot = true;
       dispatch({ type: "snapshot", ...next });
+      // A snapshot replaces the tape with its short tail (after a bot restart, too),
+      // so the full tape has to load again, not just on the first connect.
+      if (tapeStatus === "done") tapeStatus = "idle";
       if (!closed) void hydrateTape();
     };
 
