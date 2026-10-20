@@ -1,0 +1,17 @@
+[Unit]
+Description=JevTrade dashboard (Next, www.gpurent.io)
+After=network-online.target jevtrade-bot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__APP_DIR__/web
+Environment=NODE_ENV=production
+# --bun runs next on Bun, so the server needs no Node.
+ExecStart=__BUN__ --bun next start -p 3001 -H 127.0.0.1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

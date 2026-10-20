@@ -1,0 +1,16 @@
+[Unit]
+Description=JevTrade bot (Bun, api.gpurent.io)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__APP_DIR__
+# Bun loads __APP_DIR__/.env on its own.
+ExecStart=__BUN__ run src/index.ts
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

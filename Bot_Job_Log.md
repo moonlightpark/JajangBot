@@ -1,6 +1,6 @@
 # Bot 작업 로그
 
-## 다음 작업 시작하기 (인수인계, 2026-10-16 기준)
+## 다음 작업 시작하기 (인수인계, 2026-10-21 기준)
 
 이 섹션만 읽으면 이어서 작업할 수 있게 정리했습니다. 작업이 끝날 때마다 이 섹션과 아래 작업 기록을 함께 갱신합니다.
 
@@ -9,7 +9,7 @@
 1. 이 파일(`Bot_Job_Log.md`)의 이 섹션과 맨 아래 "남은 작업"을 읽습니다. CLAUDE.md에도 같은 안내가 있습니다.
 2. 상태를 확인합니다.
    ```sh
-   git log --oneline -5      # 최신 커밋: "Add backtest, strategy variants, Jev compare, and chart readability" (41번)
+   git log --oneline -5      # 최신 커밋: "Deploy to gpurent.io with GitHub Actions, rerun backtest at startup" (45번)
    git status                # 커밋 안 된 변경 확인
    bun test                  # 115개 통과가 정상
    ```
@@ -30,7 +30,7 @@
 | 판단 방식 | `MODEL=mock` / `jev` / `strategy`. strategy는 TradingView Maginga 15Ho 채널 규칙, 15분봉 전용, 매 틱 판단 (11번, 16번) |
 | 리스크 한도 | `MAX_POSITION_USD`, `MAX_LEVERAGE` (비우면 한도 없음) |
 | 대시보드 | 상단 타이틀 "ChoRong Jev Trade"(37번). 상단에 거래 모드(Live / Testnet / Demo / Dry run)와 판단 주체(by Jev / mock model / TradingView strategy) 표시. 15m 차트에서 전략 라인 표시 |
-| 백테스트 | `bun run backtest`로 최근 3개월 strategy 백테스트 (22번) |
+| 백테스트 | `MODEL=strategy`면 봇이 시작할 때 최근 3개월 백테스트를 시작 시각까지 다시 돌려 `latest.json` 갱신(42번, 약 13초). 실패하면 저장된 결과 유지. 수동은 `bun run backtest` (22번) |
 | 차트 | 15분봉 3개월(`CHART_DAYS`, 기본 92일)을 불러옴. 주기 1s, 1m, 5m, 15m, 1H, 4H, 1D (24번) |
 | 백테스트 표시 | 진입은 파란 `BT Long/Short 수량`, 청산은 손익(수익 초록, 손실 주황빨강), 호버하면 상세 카드(38번). 차트에 `BT` 표시, `BT` 버튼으로 끄고 켬. 데이터는 `backtest-results/latest.json` → `GET /backtest` (26번) |
 | 차트 기본 주기 | 15m (28번, 전에는 5m) |
@@ -42,7 +42,9 @@
 | dry run 잔액 | 시작 $500(코인당 $100) + 청산된 백테스트 손익 + 봇 손익(수수료 뺌). 상단 balance, backtest에 표시 (32, 33번) |
 | Jev 비교 | `bun run start:jev`(:3002, dry run), `bun run dev:web:jev`(:3003), `bun run compare`. Jev 키가 없어 아직 Jev 실행 안 함 (35번) |
 | 테스트 | `bun test` 115개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
-| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 41번 커밋까지 푸시) |
+| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 45번 커밋까지 푸시) |
+| 서버 배포 | `220.76.214.201`(Ubuntu 24.04, 사용자 `mineos`, shipgo와 같이 쓰는 서버). `~/jevtrade`에서 systemd `jevtrade-bot`(:3000), `jevtrade-web`(:3001), 둘 다 127.0.0.1에만 바인딩. nginx가 `www.gpurent.io`, `api.gpurent.io`를 HTTPS로 연결, 인증서 자동 갱신 (43, 44번) |
+| 자동 배포 | `.github/workflows/deploy.yml`: main에 push하면 `bun test` 후 SSH로 `deploy/deploy.sh` 실행. Secrets 4개 등록 완료. (43, 45번) |
 | 미검증 | 실제 키로 주문하는 경로 전체 |
 
 ### 현재 `.env` 주요 값 (비밀값 제외, 2026-10-10 확인)
@@ -83,6 +85,7 @@
 | `src/trader.ts` | 매 틱 루프 |
 | `src/backtest.ts` | 백테스트 시뮬레이션 (네트워크 없음, 테스트 대상) |
 | `src/backtest-run.ts` | `bun run backtest`. 결과 출력, CSV와 `latest.json` 저장 |
+| `src/backtest-report.ts` | 코인별 백테스트 실행(`backtestCoins`)과 봇 시작 시 갱신(`refreshBacktest`). CLI와 봇이 함께 씀 (42번) |
 | `src/backtest-data.ts` | 백테스트 공용: 인자, 수수료, 1분봉 다운로드와 캐시(`.backtest-cache/`) |
 | `src/backtest-sweep.ts` | `bun run sweep`. 전략 변형 비교 (train/test 구간) |
 | `src/types.ts` | 봇과 대시보드 사이 데이터 타입. `web/src/lib/bot-types.ts`와 **똑같이 유지** |
@@ -995,9 +998,73 @@ README.md 전체를 한글로 다시 작성했습니다. 기존 내용에 더해
 
 **확인한 것**: 커밋 전 `bun test` 115개 통과. 비밀값 검사에서 걸린 것 없음. `.env`, `web/.env.local`, `backtest-results/`, `.backtest-cache/`는 git에서 제외되어 올라가지 않음.
 
+## 2026-10-18
+
+### 42. 서버 실행, 백테스트를 서버 시작 시각까지
+
+**요청**: 서버 실행. 백테스트가 10월 9일까지만 되어 있으니 서버가 동작한 시점까지 백테스트하도록.
+
+**원인**: `backtest-results/latest.json`은 10월 10일 01:47(KST)에 `bun run backtest`를 손으로 돌린 결과였고, 봇은 시작할 때 이 파일을 읽기만 했습니다. 그래서 10월 9일 이후 거래가 차트와 dry run 잔액에 없었습니다.
+
+**변경**
+
+- `src/backtest-report.ts`(새 파일): `backtest-run.ts`의 코인별 실행 부분을 `backtestCoins`로 분리. `refreshBacktest`는 최근 3개월부터 봇 시작 시각(분 단위)까지 돌려 `latest.json`에 저장. 한 코인이라도 실패하면 저장하지 않고 기존 파일을 그대로 둠(그 코인 거래가 차트에서 사라지지 않게).
+- `src/index.ts`: `MODEL=strategy`면 시작할 때 `refreshBacktest` 실행 후 그 결과로 dry run 잔액 계산. 실패하면 저장된 결과를 읽고 그 끝 시각을 로그에 남김.
+- `src/backtest-run.ts`: `backtestCoins`를 쓰도록 정리. 출력과 CSV는 그대로.
+
+**확인한 것**: `bun test` 115개 통과, 타입 오류는 기존 Jev 관련 5개뿐. 재시작 로그 `backtest: 2026-07-17 to 2026-10-17T18:47 UTC in 12820ms`(KST 10/18 03:47까지). 캔들 캐시가 있어 빠진 9일만 받아옴. `GET /backtest`의 `to`가 시작 시각, 코인별 마지막 진입은 10/14~10/16. dry run 잔액도 새 결과 기준(BTC $101.62, ETH $103.12, SOL $100.63, DOGE $99.86, BNB $101.38).
+
+**참고**: 백테스트 끝에 열려 있는 거래(지금은 DOGE)는 잔액에 넣지 않고, 봇은 포지션 없이 시작합니다(기존과 같음).
+
+## 2026-10-21
+
+### 43. 220.76.214.201 서버 배포와 자동 배포 설정
+
+**요청**: `www.gpurent.io`는 대시보드, `api.gpurent.io`는 봇 API로, 두 도메인 모두 nginx로 `220.76.214.201`에 연결하고, 자동 배포되게 설정.
+
+**구성**
+
+| 항목 | 내용 |
+| --- | --- |
+| 서버 | Ubuntu 24.04, 사용자 `mineos`(접속 키 `/Users/mac/keyfile/www.pem`), sudo 비밀번호 필요. shipgo 사이트, MySQL, Redis가 같이 돌고 있음 |
+| 앱 위치 | `~/jevtrade` (GitHub에서 clone), bun은 `~/.bun/bin/bun` (1.4.3). Node 없이 `bun --bun next`로 대시보드 실행 |
+| 서비스 | systemd `jevtrade-bot`(`bun run src/index.ts`, :3000), `jevtrade-web`(`next start`, :3001). 둘 다 127.0.0.1에만 바인딩하고 부팅 시 자동 시작 |
+| nginx | `/etc/nginx/sites-available/gpurent.conf`. `gpurent.io`는 www로 리다이렉트, www는 :3001, api는 :3000. SSE를 위해 api는 버퍼링 끄고 타임아웃 24시간 |
+| 서버 `.env` | 로컬과 같은 값(demo, strategy, 키 없음 = dry run)에 `HOST=127.0.0.1` 추가. `backtest-results/`도 복사 |
+| 자동 배포 | main에 push하면 GitHub Actions가 `bun test`를 돌리고, 통과하면 SSH로 해당 커밋을 checkout하고 `deploy/deploy.sh` 실행(설치, `NEXT_PUBLIC_API_URL=https://api.gpurent.io`로 빌드, 재시작, 헬스 체크) |
+| 배포 키 | CI 전용 ed25519 키를 새로 만들어 서버 `authorized_keys`에 `restrict` 옵션으로 추가. 개인키는 GitHub Secrets에만 있음(`DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`) |
+| sudo | `/etc/sudoers.d/jevtrade`: `mineos`가 두 서비스 restart, status만 비밀번호 없이 실행 가능 |
+
+**새 파일**: `deploy/deploy.sh`, `deploy/setup-server.sh`(최초 1회, `sudo bash deploy/setup-server.sh`), `deploy/nginx/gpurent.conf`, `deploy/systemd/jevtrade-{bot,web}.service`, `.github/workflows/deploy.yml`
+
+**코드 변경**: `HOST` 환경변수 추가(`src/config.ts`, `src/server.ts`, 기본 `0.0.0.0`). 서버에서는 `127.0.0.1`로 두어 :3000이 nginx를 거치지 않고 외부에 열리지 않게 함. `.env.example`, README에 설명 추가.
+
+**확인**: 서버에서 nginx를 거쳐 www 200, api `/` JSON, `/events` SSE 스트림 정상. 기존 shipgo 사이트 응답 그대로. 로컬 `bun test` 115개 통과.
+
+**참고**
+- setup의 `apt-get install`이 이미 설치된 nginx, git, curl을 Ubuntu 최신 패치 버전으로 올림(nginx는 무중단 교체).
+- 지금 서버 코드는 41번 커밋에 43번 파일을 복사한 상태. 42번(시작 시 백테스트 재실행)은 커밋 전이라 서버에 없음. 커밋하고 push하면 CI가 서버를 그 커밋으로 맞춤.
+- DNS가 아직 없음(`gpurent.io` 조회 결과 비어 있음). DNS 연결 후 HTTPS 인증서 발급 필요(44번에서 처리).
+
+### 44. DNS 연결 확인과 HTTPS 인증서 발급
+
+- DNS: Route 53(`ns-1359.awsdns-41.org`)에 `gpurent.io`, `www`, `api` A 레코드 모두 `220.76.214.201`. CAA 없음.
+- `sudo certbot --nginx --redirect -d www.gpurent.io -d gpurent.io -d api.gpurent.io`로 인증서 발급. 만료 2027-01-18, `certbot.timer`로 자동 갱신. 이메일 없이 등록.
+- certbot이 서버의 `gpurent.conf`에 443 블록과 HTTP에서 HTTPS로 가는 리다이렉트를 추가함. 저장소의 `deploy/nginx/gpurent.conf`는 certbot 적용 전 HTTP 버전 그대로(최초 설정용).
+- `gpurent.io`가 `http://www`로 보내던 것을 `https://www`로 수정(서버와 저장소 둘 다).
+- 확인: `https://www.gpurent.io` 200, `https://api.gpurent.io` 200, `/events` SSE 스트림, CORS 헤더 정상. 대시보드 번들에 `https://api.gpurent.io`가 들어가 있음. shipgo 사이트 HTTPS 200 그대로.
+
+### 45. 커밋과 푸시
+
+42번에서 44번까지 커밋하고 `origin/main`에 push. 이 push가 자동 배포 워크플로(GitHub Actions Deploy)의 첫 실행.
+
 ## 남은 작업
 
 **우선**
+
+- [x] 42~44번 커밋, push (45번)
+- [x] DNS 연결과 HTTPS 인증서 (44번)
+- [ ] 서버 sudo 비밀번호 변경 권장 (대화에 평문으로 공유됨)
 
 - [ ] Bybit 데모 서브계정 키로 실제 주문 경로 검증: 주문 생성, 정정, 취소, 레버리지 설정, 비공개 웹소켓 인증, 체결 수신
 - [ ] 배포된 데모(https://www.jev-trade.com/)의 봇을 Bybit 설정으로 다시 배포
@@ -1005,7 +1072,7 @@ README.md 전체를 한글로 다시 작성했습니다. 기존 내용에 더해
 
 **보안 (3번 검토에서 보류한 항목)**
 
-- [ ] 봇 API 접근 제한: 로컬에서는 `127.0.0.1`에만 바인딩하는 옵션, SSE 연결 수 상한
+- [ ] 봇 API 접근 제한: SSE 연결 수 상한 (`127.0.0.1` 바인딩 옵션 `HOST`는 43번에서 추가)
 - [ ] `.bybit-keys.json`이나 `BYBIT_KEYS_JSON`의 JSON 오류를 시작할 때 경고로 표시
 - [ ] `BYBIT_API_KEY`가 붙는 코인을 명시적으로 지정 (지금은 `COINS`의 첫 번째 코인)
 - [ ] Dockerfile에 `USER bun` 추가

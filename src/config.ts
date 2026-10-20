@@ -116,6 +116,8 @@ export const config = {
   jevModelId,
   jevUsdPerMTok: 0.042,
   port: Number(env("PORT", "3000")),
+  /** Interface the API binds to. 127.0.0.1 behind nginx keeps PORT off the public network. */
+  host: env("HOST", "0.0.0.0"),
   historySize: 1000,
   /** Dry run starting balance, all coins together. Each sleeve starts with an equal share. */
   bankrollUsd: Math.max(0, Number(env("BANKROLL_USD", "500")) || 0),

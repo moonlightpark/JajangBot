@@ -1,5 +1,6 @@
 import { assertJevCredentials, config } from "./config";
 import { closedNetByCoin, readBacktestReport } from "./backtest";
+import { refreshBacktest } from "./backtest-report";
 import { createModel, describeStrategy } from "./model";
 import { hasKeys, loadSleeves } from "./sleeves";
 import { startServer, type SleeveView } from "./server";
@@ -38,8 +39,24 @@ const meta: Meta = {
 // BANKROLL_USD plus the net of its closed backtest trades. A wallet uses Bybit's balance.
 // The backtest replays the strategy, so only MODEL=strategy carries it; a Jev or mock
 // bot starts flat at BANKROLL_USD, which keeps a side-by-side comparison even.
-const backtest = config.model === "strategy" ? await readBacktestReport() : null;
+// The backtest is rerun up to this start first, so it ends where the bot's own calls begin.
+const backtest = config.model === "strategy" ? await startupBacktest() : null;
 const backtestNet = closedNetByCoin(backtest);
+
+async function startupBacktest() {
+  const t0 = Date.now();
+  const run = await refreshBacktest(specs.map((s) => s.coin), meta.startedAt).catch((e: Error) => {
+    console.log(`backtest: failed: ${e.message}`);
+    return null;
+  });
+  if (!run) {
+    const old = await readBacktestReport();
+    if (old) console.log(`backtest: kept the saved run to ${new Date(old.to).toISOString().slice(0, 16)} UTC`);
+    return old;
+  }
+  console.log(`backtest: ${new Date(run.report.from).toISOString().slice(0, 10)} to ${new Date(run.report.to).toISOString().slice(0, 16)} UTC in ${Date.now() - t0}ms`);
+  return run.report;
+}
 
 let server: ReturnType<typeof startServer> | undefined;
 const starters: Array<() => void> = [];

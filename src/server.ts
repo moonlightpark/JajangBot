@@ -105,6 +105,7 @@ export function startServer(meta: Meta, sleeves: SleeveView[]) {
 
   Bun.serve({
     port: config.port,
+    hostname: config.host,
     fetch(req) {
       const url = new URL(req.url);
       const { pathname } = url;
