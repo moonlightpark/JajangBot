@@ -101,7 +101,10 @@ for (const spec of specs) {
         }, p.ts);
       };
       views.push({ coin: spec.coin, history: () => trader.history, tape: () => trader.tape });
-      meta.sleeves.push({ coin: spec.coin, pair: spec.pair, label: spec.label, wallet: market.address, backtestUsd: btUsd });
+      meta.sleeves.push({
+        coin: spec.coin, pair: spec.pair, label: spec.label, wallet: market.address, backtestUsd: btUsd,
+        ...(dry ? { startUsd: config.bankrollUsd / specs.length } : {}),
+      });
       if (spec === first) {
         meta.wallet = market.address;
         meta.coin = spec.coin;

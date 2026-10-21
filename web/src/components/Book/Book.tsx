@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import type { BlockEvent, Meta, PricePoint, SleeveMeta } from "@/lib/types";
 import type { BacktestReport } from "@/lib/bot-types";
 import { backtestLots, lotSummary } from "@/lib/backtest";
-import { closedLots, tapeFills } from "@/lib/fills";
+import { closedLots, tapeFills, withBalance } from "@/lib/fills";
 import { roePct } from "@/lib/pnl";
 import { displayCoin, fmtClock, fmtCoin, fmtDateTime, fmtPct, fmtPrice, fmtSignedUsd, fmtUsd, shortTx, SIDE_KO, txUrl } from "@/lib/format";
 import { Bone } from "@/components/Skeleton/Skeleton";
@@ -74,6 +74,18 @@ export default function Book({
   const btLots = useMemo(() => backtestLots(backtest, scopeCoins), [backtest, scopeCoins]);
   const btSummary = useMemo(() => lotSummary(btLots), [btLots]);
 
+  // Dry run sleeves start from a known share, so each row can show the balance after it.
+  // A wallet sleeve has no start on the wire: its rows show no balance.
+  const startUsd = useMemo(() => {
+    let sum = 0;
+    for (const coin of scopeCoins) {
+      const start = sleeves.find((s) => s.coin === coin)?.startUsd;
+      if (start == null) return null;
+      sum += start;
+    }
+    return scopeCoins.length ? sum : null;
+  }, [scopeCoins, sleeves]);
+
   const history = useMemo(() => {
     const rows = [];
     for (const coin of scopeCoins) {
@@ -81,10 +93,13 @@ export default function Book({
         rows.push({ ...lot, coin, backtest: false });
       }
     }
-    if (showBacktest) for (const lot of btLots) rows.push({ ...lot, backtest: true });
-    rows.sort((a, b) => b.ts - a.ts);
-    return rows.slice(0, HISTORY_CAP);
-  }, [scopeCoins, tapeByCoin, showBacktest, btLots]);
+    // Backtest trades always count toward the balance (it runs on from them), even when hidden.
+    for (const lot of btLots) rows.push({ ...lot, backtest: true });
+    const all = startUsd == null ? rows.map((r) => ({ ...r, balance: null as number | null })) : withBalance(rows, startUsd);
+    const shown = showBacktest ? all : all.filter((r) => !r.backtest);
+    shown.sort((a, b) => b.ts - a.ts);
+    return shown.slice(0, HISTORY_CAP);
+  }, [scopeCoins, tapeByCoin, showBacktest, btLots, startUsd]);
 
   return (
     <section className={styles.wrap}>
@@ -234,6 +249,7 @@ export default function Book({
                   <th>진입가</th>
                   <th>청산가</th>
                   <th>손익</th>
+                  <th title="그 거래가 청산된 뒤의 잔액. 시작 금액에 수수료를 뺀 손익을 차례로 더한 값입니다.">잔액</th>
                   <th>수수료</th>
                   <th>구분</th>
                 </tr>
@@ -248,6 +264,7 @@ export default function Book({
                     <td><Bone w={56} h={10} /></td>
                     <td><Bone w={56} h={10} /></td>
                     <td><Bone w={56} h={10} /></td>
+                    <td><Bone w={64} h={10} /></td>
                     <td><Bone w={40} h={10} /></td>
                     <td><Bone w={48} h={10} /></td>
                   </tr>
@@ -280,6 +297,7 @@ export default function Book({
                   <th>진입가</th>
                   <th>청산가</th>
                   <th>손익</th>
+                  <th title="그 거래가 청산된 뒤의 잔액. 시작 금액에 수수료를 뺀 손익을 차례로 더한 값입니다.">잔액</th>
                   <th>수수료</th>
                   <th>구분</th>
                 </tr>
@@ -307,6 +325,7 @@ export default function Book({
                       <td>{lot.entry != null ? fmtPrice(lot.entry) : "-"}</td>
                       <td>{fmtPrice(lot.exit)}</td>
                       <td style={{ color: pnlColor }}>{fmtSignedUsd(lot.pnl, 2)}</td>
+                      <td>{lot.balance != null ? fmtUsd(lot.balance, 2) : "-"}</td>
                       <td>{lot.fee ? fmtUsd(lot.fee, 2) : "-"}</td>
                       <td className={lot.backtest ? styles.btTag : undefined}>{lot.backtest ? "백테스트" : "봇"}</td>
                     </tr>

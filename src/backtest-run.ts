@@ -51,7 +51,7 @@ for (const { coin, leverage, bars, result: r } of runs) {
   // A partial take profit shares its position with a later trade, so count the position once.
   const liqRisk = r.trades.filter((t) => !t.partial && t.maxAdversePct >= 100 / leverage - 0.5).length;
   const partials = r.trades.filter((t) => t.partial).length;
-  const adds = r.trades.reduce((n, t) => n + Math.max(0, (t.entries?.length ?? 1) - 1), 0);
+  const adds = r.trades.reduce((n, t) => n + (t.partial ? 0 : Math.max(0, (t.entries?.length ?? 1) - 1)), 0);
   console.log(
     `  ${leverage}x  trades ${done.length}  win ${done.length ? Math.round((wins / done.length) * 100) : 0}%  pnl ${usd(r.pnlUsd)}  fees ${usd(r.feesUsd)}  max drawdown ${usd(r.maxDrawdownUsd)}  missed entries ${r.missedEntries}` +
     (adds ? `  adds ${adds}` : "") +

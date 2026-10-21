@@ -7,8 +7,6 @@ import Feed from "@/components/Feed/Feed";
 import FlowChart from "@/components/FlowChart/FlowChart";
 import Header from "@/components/Header/Header";
 import { deciderLabel, tradingMode } from "@/lib/mode";
-import SleeveStrip from "@/components/SleeveStrip/SleeveStrip";
-import { lastMeaningfulCall } from "@/lib/format";
 import { portfolioBalance, portfolioPnl } from "@/lib/pnl";
 import { backtestOpenPnl } from "@/lib/backtest";
 import { useBacktest } from "@/lib/useBacktest";
@@ -50,7 +48,8 @@ export default function Page() {
     return Object.keys(feed.byCoin);
   }, [feed.meta, feed.byCoin]);
 
-  const coin = picked && coins.includes(picked) ? picked : coins[0] ?? "BTC";
+  // BTC by default. Another coin is picked from the position or history rows.
+  const coin = picked && coins.includes(picked) ? picked : coins.includes("BTC") ? "BTC" : coins[0] ?? "BTC";
   const sleeve = feed.byCoin[coin] ?? EMPTY;
   const meta = viewMeta(feed.meta, coin);
 
@@ -63,15 +62,6 @@ export default function Page() {
   const tapeByCoin = useMemo(() => {
     const out: Record<string, NonNullable<SleeveFeed["tape"]>> = {};
     for (const c of coins) out[c] = feed.byCoin[c]?.tape ?? [];
-    return out;
-  }, [coins, feed.byCoin]);
-
-  const lastCallByCoin = useMemo(() => {
-    const out: Record<string, string> = {};
-    for (const c of coins) {
-      const s = feed.byCoin[c];
-      out[c] = lastMeaningfulCall(s?.events ?? [], s?.latest ?? null);
-    }
     return out;
   }, [coins, feed.byCoin]);
 
@@ -101,14 +91,6 @@ export default function Page() {
         backtestOpen={hasBooks ? backtestOpen : null}
         mode={meta ? tradingMode(meta, meta.wallet) : null}
         decider={meta ? deciderLabel(meta.model) : null}
-      />
-      <SleeveStrip
-        sleeves={feed.meta?.sleeves ?? []}
-        latestByCoin={latestByCoin}
-        lastCallByCoin={lastCallByCoin}
-        selected={coin}
-        onSelect={setPicked}
-        waiting={waiting}
       />
       <div className={styles.main}>
         <div className={styles.left}>

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { crosshairLabel, tickLabel, zonedDateTime } from "../web/src/lib/chartTime";
 import { backtestDetail, backtestLots, backtestMarks, backtestOpenPnl, fmtHeld, fmtSize, lotSummary, parseBacktest, roePct } from "../web/src/lib/backtest";
 import { fmtCall, fmtDateTime } from "../web/src/lib/format";
+import { withBalance } from "../web/src/lib/fills";
 import type { BacktestTrade } from "../src/types";
 
 const H = 60 * 60 * 1000;
@@ -130,4 +131,15 @@ test("a partial take profit marks only its exit, and the rest keeps the size it 
 test("fmtCall names a partial take profit with its share", () => {
   expect(fmtCall({ intent: "close", bias: "long", leverage: 15, closeFraction: 0.7 })).toBe("롱 70% 익절 15x");
   expect(fmtCall({ intent: "close", bias: "short", leverage: 15 })).toBe("숏 청산 15x");
+});
+
+test("withBalance runs the balance oldest first and keeps the given order", () => {
+  const rows = [
+    { key: "b", ts: 20, pnl: -3, fee: 0.5 },
+    { key: "a", ts: 10, pnl: 5, fee: 1 },
+  ];
+  const out = withBalance(rows, 100);
+  expect(out.map((r) => r.key)).toEqual(["b", "a"]);
+  expect(out[1]!.balance).toBeCloseTo(104, 9);   // 100 + 5 - 1
+  expect(out[0]!.balance).toBeCloseTo(100.5, 9); // then - 3 - 0.5
 });

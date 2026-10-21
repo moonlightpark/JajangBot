@@ -158,6 +158,8 @@ export interface SleeveMeta {
    * starting balance, so the balance runs on from the backtest. 0 with a wallet.
    */
   backtestUsd?: number;
+  /** Dry run only: this sleeve's share of BANKROLL_USD, before the backtest. Left out with a wallet. */
+  startUsd?: number;
 }
 
 export interface Meta {

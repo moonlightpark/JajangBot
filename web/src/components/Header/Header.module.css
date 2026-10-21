@@ -1,11 +1,19 @@
+/* Upbit-style navy bar with white text. Profit and loss keep red and blue, lightened to read on navy. */
 .header {
+  --hdr-ink: #ffffff;
+  --hdr-muted: rgba(255, 255, 255, 0.68);
+  --pnl-pos: #ff8f7a;
+  --pnl-neg: #8cc4ff;
+  --live-dot: #4fd69c;
+  --track: rgba(255, 255, 255, 0.18);
   flex: none;
   display: flex;
   align-items: center;
   gap: 14px;
   padding: 12px 20px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  background: var(--navy);
+  color: var(--hdr-ink);
+  border-bottom: 1px solid var(--navy);
 }
 
 .brandLockup {
@@ -22,7 +30,7 @@
   font-size: 15px;
   line-height: 1;
   letter-spacing: -0.02em;
-  color: var(--navy);
+  color: var(--hdr-ink);
   white-space: nowrap;
 }
 
@@ -35,7 +43,7 @@
   font-size: 12px;
   line-height: 1;
   letter-spacing: 0;
-  color: var(--ink);
+  color: var(--hdr-ink);
   white-space: nowrap;
 }
 
@@ -43,7 +51,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--hdr-muted);
   flex: none;
 }
 
@@ -53,20 +61,20 @@
 
 .statusDetail {
   font-weight: 400;
-  color: var(--muted);
+  color: var(--hdr-muted);
 }
 
 /* Who decides. Anything other than Jev is called out so the page never implies Jev made the call. */
 .decider {
   font-weight: 700;
   padding: 3px 7px;
-  border: 1px solid var(--navy);
+  border: 1px solid var(--hdr-ink);
   border-radius: 3px;
-  color: var(--navy);
+  color: var(--hdr-ink);
 }
 
 .decider[data-jev="true"] {
-  border-color: var(--muted);
+  border-color: var(--hdr-muted);
   font-weight: 400;
 }
 
@@ -96,13 +104,13 @@
   font-weight: 500;
   font-size: 12px;
   letter-spacing: 0;
-  color: var(--muted);
+  color: var(--hdr-muted);
 }
 
 .scoreVal {
   font-weight: 700;
   font-size: 16px;
-  color: var(--ink);
+  color: var(--hdr-ink);
 }
 
 @media (max-width: 640px) {

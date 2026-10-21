@@ -144,6 +144,52 @@ test("partialTp closes 70% at the channel middle as its own trade and keeps the 
   expect(rest!.partial).toBeUndefined();
 });
 
+test("swingStop closes after the last add once the price breaks the low between the last two entries", () => {
+  const t0 = WARM * M;
+  const rows = [
+    ...calm(WARM),
+    bar(t0, { low: 97, close: 98 }),          // long signal: post at 98
+    bar(t0 + M, { low: 97.5, close: 98 }),    // filled (entry 1)
+    ...calm(20, t0 + 2 * M),
+    bar(t0 + 22 * M, { low: 97, close: 98 }), // signal again after 1 bar: entry 2 posts
+    bar(t0 + 23 * M, { low: 96.5, close: 98 }), // filled (entry 2); low 96.5
+    ...calm(20, t0 + 24 * M),
+    bar(t0 + 44 * M, { low: 97, close: 98 }), // entry 3 posts
+    bar(t0 + 45 * M, { low: 97.2, close: 98 }), // filled (entry 3): level = 96.5
+    bar(t0 + 46 * M, { low: 96.6, close: 96.6 }), // above the level: held
+    bar(t0 + 47 * M, { low: 96.3, close: 96.4 }), // under 96.5: stop
+    ...calm(5, t0 + 48 * M),
+  ];
+  const r = runBacktest(rows, { ...opts, maxAdds: 2, addGapBars: [1], swingStop: true });
+  expect(r.trades[0]).toMatchObject({ side: "long", exitPx: 96.4, exitTs: t0 + 48 * M });
+  expect(r.trades[0]!.entries).toHaveLength(3);
+  expect(r.stops).toBe(1);
+});
+
+test("firstPriceTp closes 2/3 at the first entry's price after the last add and keeps the rest", () => {
+  const t0 = WARM * M;
+  const rows = [
+    ...calm(WARM),
+    bar(t0, { low: 97, close: 98 }),            // long signal: post at 98
+    bar(t0 + M, { low: 97.5, close: 98 }),      // entry 1 at 98
+    ...calm(20, t0 + 2 * M),
+    bar(t0 + 22 * M, { low: 97, close: 97.5 }),
+    bar(t0 + 23 * M, { low: 97, close: 97.5 }), // entry 2 at 97.5
+    ...calm(20, t0 + 24 * M),
+    bar(t0 + 44 * M, { low: 96.9, close: 97 }),
+    bar(t0 + 45 * M, { low: 96.9, close: 97 }), // entry 3 at 97
+    bar(t0 + 46 * M, { close: 98 }),            // back to entry 1: take 2/3
+    ...calm(5, t0 + 47 * M),
+  ];
+  const r = runBacktest(rows, { ...opts, maxAdds: 2, addGapBars: [1], firstPriceTp: 2 / 3 });
+  const [part, rest] = r.trades;
+  expect(part).toMatchObject({ side: "long", partial: true, exitPx: 98 });
+  expect(part!.entries).toHaveLength(3);
+  expect(part!.size + rest!.size).toBeCloseTo(0.408 + 0.41 + 0.412, 9); // $40 at 98, 97.5, 97
+  expect(part!.size).toBeCloseTo(0.82, 9); // 2/3 of 1.23
+  expect(rest!.exitTs).toBeNull();
+});
+
 test("closedNetByCoin sums closed trades after fees and leaves open ones out", async () => {
   const t = (pnlUsd: number, exitTs: number | null) => ({ side: "long" as const, entryTs: 1, entryPx: 1, exitTs, exitPx: 1, size: 1, pnlUsd, feesUsd: 0, maxAdversePct: 0 });
   expect(closedNetByCoin({ tradesByCoin: { BTC: [t(1.5, 2), t(-0.25, 3), t(9, null)], ETH: [] } })).toEqual({ BTC: 1.25, ETH: 0 });

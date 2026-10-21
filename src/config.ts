@@ -91,6 +91,16 @@ export function resolvePartialTp(raw: string | undefined): number | null {
   return n / 100;
 }
 
+/** A share of the position: "2/3", or a percent like "66.7". Above 0 and below 1. Empty: off. */
+export function resolveShare(name: string, raw: string | undefined): number | null {
+  const v = raw?.trim();
+  if (!v) return null;
+  const [a, b] = v.split("/");
+  const n = b != null ? Number(a) / Number(b) : Number(v) / 100;
+  if (!Number.isFinite(n) || n <= 0 || n >= 1) throw new Error(`${name} must be a share like 2/3 or a percent above 0 and below 100`);
+  return n;
+}
+
 export function resolveBybitEnv(raw?: string): BybitEnv {
   const v = (raw ?? "").trim().toLowerCase();
   if (!v || v === "demo") return "demo";
@@ -132,6 +142,10 @@ export const config = {
   strategyExit: resolveStrategyExit(env("STRATEGY_EXIT")),
   strategyOnBarClose: env("STRATEGY_ON_BAR_CLOSE") === "true",
   strategyExitLive: env("STRATEGY_EXIT_LIVE") === "true",
+  /** Stop at the low/high between the last two entries once the last entry is in. */
+  strategySwingStop: env("STRATEGY_SWING_STOP") === "true",
+  /** Share taken at the first entry's price once every entry is in ("2/3"). Empty: off. */
+  strategyFirstPriceTp: resolveShare("STRATEGY_FIRST_PRICE_TP", env("STRATEGY_FIRST_PRICE_TP")),
   /** Share taken at the channel middle after the first entry (70 -> 0.7). Empty: off. */
   strategyPartialTp: resolvePartialTp(env("STRATEGY_PARTIAL_TP_PCT")),
   /** Adds (물타기) after the first entry, same side. 0: none, as in the script. */

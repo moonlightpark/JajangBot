@@ -324,6 +324,7 @@ function parseSleeves(raw: unknown): Meta["sleeves"] {
       label: s.label,
       wallet: typeof s.wallet === "string" ? s.wallet : null,
       ...(typeof s.backtestUsd === "number" && Number.isFinite(s.backtestUsd) ? { backtestUsd: s.backtestUsd } : {}),
+      ...(typeof s.startUsd === "number" && Number.isFinite(s.startUsd) ? { startUsd: s.startUsd } : {}),
     });
   }
   return out;

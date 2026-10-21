@@ -129,3 +129,18 @@ export function closedLots(fills: TapeFill[]): ClosedLot[] {
 
   return out;
 }
+
+/**
+ * Balance after each closed lot, oldest first: `start` plus every lot's PnL after fees up to
+ * and including it. Rows come back in the order given, each with `balance`.
+ */
+export function withBalance<T extends { ts: number; pnl: number; fee: number }>(rows: T[], start: number): (T & { balance: number })[] {
+  const order = rows.map((r, i) => i).sort((a, b) => rows[a]!.ts - rows[b]!.ts);
+  const out = new Array<T & { balance: number }>(rows.length);
+  let bal = start;
+  for (const i of order) {
+    bal += rows[i]!.pnl - rows[i]!.fee;
+    out[i] = { ...rows[i]!, balance: bal };
+  }
+  return out;
+}

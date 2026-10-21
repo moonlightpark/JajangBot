@@ -3,7 +3,7 @@ import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { assertJevCredentials, config } from "./config";
 import { clampLeverage, leverageRungs, liveIntent, parseLeverage, quoteAction, type Bias, type Intent } from "./plan";
 import type { Ohlc } from "./chart";
-import { closedBars, MAGINGA, magingaLines, rearm, strategyCall, trackEntries, withLiveBar, type EntryLog, type MagingaParams, type StrategyRules } from "./strategy";
+import { closedBars, MAGINGA, magingaLines, rearm, strategyCall, swingLevel, trackEntries, withLiveBar, type EntryLog, type MagingaParams, type StrategyRules } from "./strategy";
 import type { Action, Side, StrategyLevels } from "./types";
 
 /** What the model sees. Compact, relative, human-readable. */
@@ -422,6 +422,8 @@ export const liveStrategy: { params: MagingaParams; rules: StrategyRules } = {
     onBarClose: config.strategyOnBarClose,
     exitLive: config.strategyExitLive,
     partialTp: config.strategyPartialTp,
+    swingStop: config.strategySwingStop,
+    firstPriceTp: config.strategyFirstPriceTp,
     maxAdds: config.strategyMaxAdds,
     addGapBars: config.strategyAddGapBars,
   },
@@ -434,6 +436,8 @@ export function describeStrategy(s = liveStrategy): string {
   if (s.rules.exit !== "opposite") parts.push(`exit ${s.rules.exit}`);
   if (s.rules.onBarClose) parts.push("bar close");
   if (s.rules.exitLive) parts.push("live take profit");
+  if (s.rules.firstPriceTp) parts.push(`take ${+(s.rules.firstPriceTp * 100).toFixed(2)}% at entry 1 price after entry ${1 + s.rules.maxAdds}`);
+  if (s.rules.swingStop) parts.push(`swing stop after entry ${1 + s.rules.maxAdds}`);
   if (s.rules.partialTp) parts.push(`take ${+(s.rules.partialTp * 100).toFixed(2)}% at middle`);
   if (s.rules.maxAdds) parts.push(`adds ${s.rules.maxAdds} after ${s.rules.addGapBars.join("/")} bars`);
   return parts.join(", ");
@@ -467,6 +471,19 @@ export class StrategyModel implements Model {
     const side = state.position.side;
     const now = this.now();
     this.entries = trackEntries(this.entries, side, state.position.size, now);
+    // The first entry's price: the average while only one entry is in.
+    if (this.entries && this.entries.count === 1 && this.entries.firstPx == null && state.position.entry) {
+      this.entries = { ...this.entries, firstPx: state.position.entry };
+    }
+    // Swing stop: fix the level once the last entry is in, from the bars between the last two entries.
+    const e = this.entries;
+    if (rules.swingStop && e && side !== "flat" && e.count >= 1 + rules.maxAdds && e.level == null && e.prevTs != null) {
+      const level = swingLevel(this.bars(), side, e.prevTs, e.lastTs, p.periodMs);
+      if (level != null) {
+        this.entries = { ...e, level };
+        console.log(`${state.coin} strategy ${p.timeframe}: swing stop set at ${level} (entries ${e.count - 1} to ${e.count})`);
+      }
+    }
     const bars = rules.onBarClose ? closedBars(this.bars(), this.now(), p.periodMs) : withLiveBar(this.bars(), state.mid, this.now(), p.periodMs);
     const lines = magingaLines(bars, p);
     const last = bars.at(-1);

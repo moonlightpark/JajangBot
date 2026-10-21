@@ -78,21 +78,6 @@ export function fmtCall(d: {
   return d.leverage != null ? `${word} ${d.leverage}x` : word;
 }
 
-/** Newest non-late call, so a LATE tick does not wipe the last real pick. */
-export function lastMeaningfulCall(
-  events: { decision: { late: boolean; action?: string; intent?: string; bias?: string; leverage?: number | null } | null }[],
-  latest?: { decision: { late: boolean; action?: string; intent?: string; bias?: string; leverage?: number | null } | null } | null,
-): string {
-  const tail = latest ? [...events, latest] : events;
-  for (let i = tail.length - 1; i >= 0; i--) {
-    const d = tail[i]?.decision;
-    if (!d || d.late) continue;
-    const call = fmtCall(d);
-    if (call) return call;
-  }
-  return "";
-}
-
 /** 0.62 -> "62%" */
 export function fmtPct(p: number | null | undefined): string {
   return `${Math.round(safe(p) * 100)}%`;

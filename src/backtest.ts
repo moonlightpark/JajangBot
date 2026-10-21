@@ -60,6 +60,10 @@ export interface BacktestOpts {
   exitLive?: boolean;
   /** Share (0.7 = 70%) taken once at the channel middle while only the first entry is in. */
   partialTp?: number | null;
+  /** Stop at the low/high between the last two entries once the last entry is in. */
+  swingStop?: boolean;
+  /** Share taken at the first entry's price once every entry is in. */
+  firstPriceTp?: number | null;
   /** Adds (물타기) after the first entry, same side, each its `addGapBars` 15m bars after the last. 0: none. */
   maxAdds?: number;
   addGapBars?: number[];
@@ -137,13 +141,17 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     onBarClose: o.onBarClose ?? false,
     exitLive: o.exitLive ?? false,
     partialTp: o.partialTp ?? null,
+    swingStop: o.swingStop ?? false,
+    firstPriceTp: o.firstPriceTp ?? null,
     maxAdds: o.maxAdds ?? 0,
     addGapBars: o.addGapBars ?? [50],
   };
   let pending: Pending | null = null;
   type Entry = { ts: number; px: number; size: number };
   /** entryPx is the average over `entries`. */
-  type Pos = { side: "long" | "short"; entryTs: number; entryPx: number; size: number; fee: number; worst: number; entries: Entry[]; trimmed?: boolean };
+  type Pos = { side: "long" | "short"; entryTs: number; entryPx: number; size: number; fee: number; worst: number; entries: Entry[]; trimmed?: boolean;
+    /** Lowest low (long) or highest high (short) since the last entry; `level` freezes it at the last entry. */
+    ext: number; level?: number };
   let pos: Pos | null = null;
   // A trimmed position keeps its entries, so the rest still shows the size it opened with.
   const entriesOf = (p: Pos) => (p.entries.length > 1 || p.trimmed ? { entries: p.entries } : {});
@@ -179,12 +187,16 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
         fees += fee;
         const e: Entry = { ts: b.ts, px: pending.price, size: pending.size };
         const held = pos as Pos | null;
+        const far = pending.side === "long" ? b.low : b.high;
         if (held && held.side === pending.side) {
-          // An add: the position averages in.
+          // An add: the position averages in. The last add fixes the swing stop at the extreme since the add before.
           const size = held.size + e.size;
-          pos = { ...held, entryPx: (held.entryPx * held.size + e.px * e.size) / size, size, fee: held.fee + fee, entries: [...held.entries, e] };
+          const entries = [...held.entries, e];
+          const ext = held.side === "long" ? Math.min(held.ext, far) : Math.max(held.ext, far);
+          const level = entries.length >= 1 + rules.maxAdds ? ext : held.level;
+          pos = { ...held, entryPx: (held.entryPx * held.size + e.px * e.size) / size, size, fee: held.fee + fee, entries, ext: far, level };
         } else {
-          pos = { side: pending.side, entryTs: b.ts, entryPx: e.px, size: e.size, fee, worst: 0, entries: [e] };
+          pos = { side: pending.side, entryTs: b.ts, entryPx: e.px, size: e.size, fee, worst: 0, entries: [e], ext: far };
         }
         pending = null;
       }
@@ -192,6 +204,7 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     if (pos) {
       const against = pos.side === "long" ? (pos.entryPx - b.low) / pos.entryPx : (b.high - pos.entryPx) / pos.entryPx;
       pos.worst = Math.max(pos.worst, against * 100);
+      pos.ext = pos.side === "long" ? Math.min(pos.ext, b.low) : Math.max(pos.ext, b.high);
     }
 
     const period = Math.floor(b.ts / p.periodMs) * p.periodMs;
@@ -228,7 +241,9 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     let fraction: number | undefined;
     if (last && Number.isFinite(emaHigh) && Number.isFinite(emaLow)) {
       const lines: MagingaLines = { emaHigh, emaLow, shortLine: emaHigh * (1 + p.shortBand), longLine: emaLow * (1 - p.longBand) };
-      const entries = pos ? { side: pos.side, count: pos.entries.length, lastTs: pos.entries.at(-1)!.ts, size: pos.size, trimmed: pos.trimmed } : null;
+      const entries = pos
+        ? { side: pos.side, count: pos.entries.length, lastTs: pos.entries.at(-1)!.ts, size: pos.size, trimmed: pos.trimmed, level: pos.level, firstPx: pos.entries[0]!.px }
+        : null;
       let call = strategyCall(lines, last, side, b.close, pos ? pos.entryPx : null, rules, { entries, now: tickTs, periodMs: p.periodMs });
       if (call.stopped && pos) {
         blocked = pos.side;

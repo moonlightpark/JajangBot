@@ -140,6 +140,17 @@ export interface StrategyRules {
    * no add goes in after it. null: off.
    */
   partialTp: number | null;
+  /**
+   * true: once the position has its last entry (1 + maxAdds), stop out when the tick price
+   * breaks the extreme between the entry before it and that entry (long: the lowest low,
+   * short: the highest high). Runs alongside stopPct; set stopPct to null to use only this.
+   */
+  swingStop: boolean;
+  /**
+   * Share of the position (2/3) to take profit once, when the position has its last entry
+   * (1 + maxAdds) and the tick price gets back to the first entry's price. null: off.
+   */
+  firstPriceTp: number | null;
   /** Extra entries (물타기) on the same side while a position is open. 0: none, as in the script. */
   maxAdds: number;
   /**
@@ -150,7 +161,7 @@ export interface StrategyRules {
   addGapBars: number[];
 }
 
-export const SCRIPT_RULES: StrategyRules = { stopPct: null, exit: "opposite", onBarClose: false, exitLive: false, partialTp: null, maxAdds: 0, addGapBars: [50] };
+export const SCRIPT_RULES: StrategyRules = { stopPct: null, exit: "opposite", onBarClose: false, exitLive: false, partialTp: null, swingStop: false, firstPriceTp: null, maxAdds: 0, addGapBars: [50] };
 
 /** Entries into the open position: how many filled, and when the last one did. */
 export interface EntryLog {
@@ -161,6 +172,12 @@ export interface EntryLog {
   size: number;
   /** The position has shrunk since it opened: the partial take profit is done. */
   trimmed?: boolean;
+  /** When the entry before the last one filled. */
+  prevTs?: number;
+  /** swingStop: the extreme between the last two entries, set once by the caller. */
+  level?: number;
+  /** firstPriceTp: the first entry's fill price, set once by the caller. */
+  firstPx?: number;
 }
 
 /**
@@ -172,7 +189,9 @@ export interface EntryLog {
 export function trackEntries(log: EntryLog | null, side: "long" | "short" | "flat", size: number, now: number): EntryLog | null {
   if (side === "flat" || !(size > 0)) return null;
   if (!log || log.side !== side) return { side, count: 1, lastTs: now, size };
-  if (size > log.size * (1 + 1e-9)) return { side, count: log.count + 1, lastTs: now, size };
+  if (size > log.size * (1 + 1e-9)) {
+    return { side, count: log.count + 1, lastTs: now, size, prevTs: log.lastTs, ...(log.firstPx != null ? { firstPx: log.firstPx } : {}) };
+  }
   return size < log.size * (1 - 1e-9) ? { ...log, size, trimmed: true } : log;
 }
 
@@ -181,14 +200,32 @@ export function addGap(gaps: number[], n: number): number {
   return gaps[Math.min(n - 2, gaps.length - 1)] ?? 50;
 }
 
+/**
+ * The swing stop level: the lowest low (long) or highest high (short) of the bars from the
+ * one holding `fromTs` to the one holding `toTs`. Null when no bar is in that span.
+ */
+export function swingLevel(bars: Ohlc[], side: "long" | "short", fromTs: number, toTs: number, periodMs: number): number | null {
+  const from = Math.floor(fromTs / periodMs) * periodMs;
+  const to = Math.floor(toTs / periodMs) * periodMs;
+  let level: number | null = null;
+  for (const b of bars) {
+    if (b.ts < from || b.ts > to) continue;
+    const v = side === "long" ? b.low : b.high;
+    level = level == null ? v : side === "long" ? Math.min(level, v) : Math.max(level, v);
+  }
+  return level;
+}
+
 /** Whole strategy bars from `fromTs` to `now`, counted on bar boundaries. */
 export function barsBetween(fromTs: number, now: number, periodMs: number): number {
   return Math.floor(now / periodMs) - Math.floor(fromTs / periodMs);
 }
 
 /**
- * The full call, live and in the backtest: stop loss first, then the live far-line exit,
- * then the partial take profit at the channel middle, then the script's lines,
+ * The full call, live and in the backtest: stop loss first (percent, then the swing stop
+ * once the last entry is in), then the live far-line exit,
+ * then the take profit at the first entry's price (after the last entry), then the partial
+ * take profit at the channel middle, then the script's lines,
  * then the channel-middle exit, then adds. `price` is the price this tick; `last` is the
  * bar the lines are read on (forming, or the last closed one with onBarClose). `entry` is
  * the average entry. `entries` and `now` gate adds: with `maxAdds`, the side's own entry
@@ -208,11 +245,22 @@ export function strategyCall(
     const hit = side === "long" ? price <= entry * (1 - rules.stopPct) : price >= entry * (1 + rules.stopPct);
     if (hit) return { intent: "close", bias: side, reason: `stop loss ${+(rules.stopPct * 100).toFixed(2)}%`, lines, stopped: true };
   }
+  const log = scale?.entries;
+  if (rules.swingStop && side !== "flat" && price > 0 && log && log.count >= 1 + rules.maxAdds && log.level != null) {
+    const hit = side === "long" ? price < log.level : price > log.level;
+    if (hit) return { intent: "close", bias: side, reason: `swing stop, ${side === "long" ? "below low" : "above high"} ${log.level} between entries ${log.count - 1} and ${log.count}`, lines, stopped: true };
+  }
   if (rules.exitLive && side !== "flat" && price > 0) {
     if (side === "long" && price >= lines.shortLine) return { intent: "close", bias: "long", reason: "price at short line, take long profit now", lines };
     if (side === "short" && price <= lines.longLine) return { intent: "close", bias: "short", reason: "price at long line, take short profit now", lines };
   }
   const trimmed = scale?.entries?.trimmed === true;
+  if (rules.firstPriceTp && side !== "flat" && price > 0 && !trimmed && log && log.count >= 1 + rules.maxAdds && log.firstPx) {
+    if (side === "long" ? price >= log.firstPx : price <= log.firstPx) {
+      const pct = +(rules.firstPriceTp * 100).toFixed(2);
+      return { intent: "close", bias: side, reason: `back to entry 1 price ${log.firstPx}, take ${pct}% of ${side}`, lines, closeFraction: rules.firstPriceTp };
+    }
+  }
   if (rules.partialTp && side !== "flat" && price > 0 && !trimmed && (scale?.entries?.count ?? 1) === 1) {
     const mid = (lines.emaHigh + lines.emaLow) / 2;
     if (side === "long" ? price >= mid : price <= mid) {

@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import type { Ohlc } from "../src/chart";
-import { resolveEmaLen, resolveGaps, resolveModel, resolveStrategyExit } from "../src/config";
+import { resolveEmaLen, resolveGaps, resolveModel, resolveShare, resolveStrategyExit } from "../src/config";
 import { StrategyModel, type TradeState } from "../src/model";
 import { closeSize } from "../src/plan";
-import { addGap, emaSeries, MAGINGA, magingaChannel, magingaDecision, magingaLines, SCRIPT_RULES, trackEntries, withLiveBar, type StrategyRules } from "../src/strategy";
+import { addGap, emaSeries, swingLevel, MAGINGA, magingaChannel, magingaDecision, magingaLines, SCRIPT_RULES, trackEntries, withLiveBar, type StrategyRules } from "../src/strategy";
 
 const M = 60_000;
 const Q = 15 * M;
@@ -190,7 +190,7 @@ test("trackEntries counts a growing position as one more entry, and flat clears 
   const one = trackEntries(null, "short", 1, 10)!;
   expect(one).toEqual({ side: "short", count: 1, lastTs: 10, size: 1 });
   expect(trackEntries(one, "short", 1, 20)).toBe(one); // same size: no new entry
-  expect(trackEntries(one, "short", 2, 30)).toEqual({ side: "short", count: 2, lastTs: 30, size: 2 });
+  expect(trackEntries(one, "short", 2, 30)).toEqual({ side: "short", count: 2, lastTs: 30, size: 2, prevTs: 10 });
   expect(trackEntries(one, "long", 1, 40)).toEqual({ side: "long", count: 1, lastTs: 40, size: 1 }); // flipped
   expect(trackEntries(one, "flat", 0, 50)).toBeNull();
 });
@@ -273,6 +273,60 @@ test("closeSize floors the part to the step and takes it all when a part or the 
   expect(closeSize(0.001, 0.7, 0.001)).toBe(0.001); // 0.0007 is under a step: all of it
   expect(closeSize(0.002, 0.7, 0.001)).toBe(0.001);
   expect(closeSize(0.5, undefined, 0.001)).toBe(0.5);
+});
+
+test("swingLevel takes the lowest low or highest high of the bars between two entries", () => {
+  const bars = [0, 1, 2, 3, 4].map((i) => ({ ts: i * Q, open: 100, high: 101 + i, low: 99 - i, close: 100 }));
+  expect(swingLevel(bars, "long", 1 * Q + 5, 3 * Q + 5, Q)).toBe(96); // bars 1..3: lows 98, 97, 96
+  expect(swingLevel(bars, "short", 1 * Q, 2 * Q, Q)).toBe(103);
+  expect(swingLevel(bars, "long", 9 * Q, 10 * Q, Q)).toBeNull();
+});
+
+test("StrategyModel swing stop: after entry 3, stops when the price breaks the low between entries 2 and 3", async () => {
+  let now = NOW;
+  // Flat bars at 100 (lows 99.9); entry 2's bar dips to 99 and entry 3's bar to 98.5.
+  const bars = () => {
+    const b = flat(400, 100, Q);
+    const at = (ts: number, low: number) => { const i = b.findIndex((x) => x.ts === Math.floor(ts / Q) * Q); if (i >= 0) b[i] = { ...b[i]!, low }; };
+    at(NOW + 70 * Q, 99);
+    at(NOW + 140 * Q, 98.5);
+    return b;
+  };
+  const m = new StrategyModel(bars, 15, () => now, variant({ swingStop: true, maxAdds: 2, addGapBars: [70] }));
+  await m.decide(held(98, "long", 1));
+  now = NOW + 70 * Q;
+  await m.decide(held(98, "long", 2)); // entry 2
+  expect(await m.decide(held(98.4, "long", 2))).toMatchObject({ intent: "hold" }); // only 2 entries: no swing stop yet
+  now = NOW + 140 * Q;
+  await m.decide(held(99, "long", 3)); // entry 3: level = lowest low from entry 2's bar to entry 3's = 98.5
+  expect(await m.decide(held(98.6, "long", 3))).toMatchObject({ intent: "hold" });
+  expect(await m.decide(held(98.4, "long", 3))).toMatchObject({ intent: "close", bias: "long" });
+});
+
+test("StrategyModel takes 2/3 at the first entry's price once all 3 entries are in", async () => {
+  let now = NOW;
+  const m = new StrategyModel(() => flat(400, 100, Q), 15, () => now, variant({ firstPriceTp: 2 / 3, maxAdds: 2, addGapBars: [70] }));
+  const pos = (mid: number, size: number, entry: number) =>
+    ({ ...state(mid, "short"), position: { side: "short", leverage: null, entry, size } } as unknown as TradeState);
+  await m.decide(pos(102, 1, 102)); // entry 1 at 102
+  expect(await m.decide(pos(101.9, 1, 102))).toMatchObject({ intent: "hold" }); // one entry: not this rule
+  now = NOW + 70 * Q;
+  await m.decide(pos(103, 2, 102.5)); // entry 2
+  expect(await m.decide(pos(102, 2, 102.5))).toMatchObject({ intent: "hold" }); // two entries: not yet
+  now = NOW + 140 * Q;
+  await m.decide(pos(104, 3, 103)); // entry 3
+  expect(await m.decide(pos(102.1, 3, 103))).toMatchObject({ intent: "hold" }); // above entry 1 (short)
+  const tp = await m.decide(pos(102, 3, 103));
+  expect(tp).toMatchObject({ intent: "close", bias: "short" });
+  expect(tp.closeFraction).toBeCloseTo(2 / 3, 9);
+  expect(await m.decide(pos(101.9, 1, 103))).toMatchObject({ intent: "hold" }); // trimmed: once only
+});
+
+test("STRATEGY_FIRST_PRICE_TP takes 2/3 or a percent", () => {
+  expect(resolveShare("S", "2/3")).toBeCloseTo(2 / 3, 9);
+  expect(resolveShare("S", "70")).toBeCloseTo(0.7, 9);
+  expect(resolveShare("S", "")).toBeNull();
+  expect(() => resolveShare("S", "3/2")).toThrow();
 });
 
 test("StrategyModel without STRATEGY_MAX_ADDS never adds, as in the script", async () => {
