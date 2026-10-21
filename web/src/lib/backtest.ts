@@ -56,7 +56,8 @@ export function backtestMarks(trades: BacktestTrade[], bar: BarSize, candleTimes
       t.entries.forEach((e, i) => {
         const time = at(e.ts);
         if (!candleTimes.has(time)) return;
-        const round = i === 0 ? "" : ` ${i + 1}차`;
+        const n = e.round ?? i + 1;
+        const round = n === 1 ? "" : ` ${n}차`;
         out.push({ time, kind: "entry", side: t.side, text: `BT ${sideWord(t.side)}${round} ${fmtSize(e.size)}${open}`, trade: t });
       });
     } else {
@@ -87,7 +88,8 @@ export function backtestDetail(
   const lev = Math.max(1, leverage);
   const rows: DetailRow[] = [{ label: "수량", value: `${fmtSize(t.size)} ${coin} ${lev}x`, tone: t.side }];
   if (t.entries && t.entries.length > 1) {
-    t.entries.forEach((e, i) => rows.push({ label: `${i + 1}차 진입`, value: `${fmtTime(e.ts)}  ${fmtPrice(e.px)}` }));
+    // A re-entry after the first-price take profit shows its round again ("2차 재진입").
+    t.entries.forEach((e, i) => rows.push({ label: e.round != null ? `${e.round}차 재진입` : `${i + 1}차 진입`, value: `${fmtTime(e.ts)}  ${fmtPrice(e.px)}` }));
     rows.push({ label: "평균가", value: fmtPrice(t.entryPx) });
   } else {
     rows.push({ label: "진입", value: `${fmtTime(t.entryTs)}  ${fmtPrice(t.entryPx)}` });

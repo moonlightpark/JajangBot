@@ -147,10 +147,18 @@ export interface StrategyRules {
    */
   swingStop: boolean;
   /**
-   * Share of the position (2/3) to take profit once, when the position has its last entry
-   * (1 + maxAdds) and the tick price gets back to the first entry's price. null: off.
+   * Share of the position (2/3) to take profit when the position has its last entry
+   * (1 + maxAdds) and the tick price gets back to the first entry's price. The rest then
+   * counts as entry 1 again (`firstPriceRestart`), so the next entry signal is entry 2 and
+   * the cycle can repeat against the same first entry price. null: off.
    */
   firstPriceTp: number | null;
+  /**
+   * After the firstPriceTp restart, once the re-entry (entry 2) is in: share (0.5) to take
+   * when the tick price gets back to the price that take profit closed at. The rest counts
+   * as entry 1 again, like after firstPriceTp. null: off.
+   */
+  retakeTp: number | null;
   /** Extra entries (물타기) on the same side while a position is open. 0: none, as in the script. */
   maxAdds: number;
   /**
@@ -161,7 +169,7 @@ export interface StrategyRules {
   addGapBars: number[];
 }
 
-export const SCRIPT_RULES: StrategyRules = { stopPct: null, exit: "opposite", onBarClose: false, exitLive: false, partialTp: null, swingStop: false, firstPriceTp: null, maxAdds: 0, addGapBars: [50] };
+export const SCRIPT_RULES: StrategyRules = { stopPct: null, exit: "opposite", onBarClose: false, exitLive: false, partialTp: null, swingStop: false, firstPriceTp: null, retakeTp: null, maxAdds: 0, addGapBars: [50] };
 
 /** Entries into the open position: how many filled, and when the last one did. */
 export interface EntryLog {
@@ -178,6 +186,8 @@ export interface EntryLog {
   level?: number;
   /** firstPriceTp: the first entry's fill price, set once by the caller. */
   firstPx?: number;
+  /** retakeTp: the price the last firstPriceTp take profit closed at. */
+  tpPx?: number;
 }
 
 /**
@@ -190,9 +200,31 @@ export function trackEntries(log: EntryLog | null, side: "long" | "short" | "fla
   if (side === "flat" || !(size > 0)) return null;
   if (!log || log.side !== side) return { side, count: 1, lastTs: now, size };
   if (size > log.size * (1 + 1e-9)) {
-    return { side, count: log.count + 1, lastTs: now, size, prevTs: log.lastTs, ...(log.firstPx != null ? { firstPx: log.firstPx } : {}) };
+    return {
+      side, count: log.count + 1, lastTs: now, size, prevTs: log.lastTs,
+      ...(log.firstPx != null ? { firstPx: log.firstPx } : {}),
+      ...(log.tpPx != null ? { tpPx: log.tpPx } : {}),
+    };
   }
   return size < log.size * (1 - 1e-9) ? { ...log, size, trimmed: true } : log;
+}
+
+/**
+ * After the take profit at the first entry price (all entries in), or the retake after the
+ * re-entry (entry 2 or more, `tpPx` known), the rest counts as entry 1: adds open again
+ * (the next one is entry 2), the swing level is cleared, and the first entry price stays.
+ * `px` is the price that take profit closed at; the first-price one records it as `tpPx`
+ * for the retake. Any other log comes back as it was. The partial take profit at the middle
+ * needs a single entry, so it never matches here.
+ */
+export function firstPriceRestart(log: EntryLog | null, rules: StrategyRules, px?: number): EntryLog | null {
+  if (!log || !log.trimmed) return log;
+  const first = !!rules.firstPriceTp && log.count >= 1 + rules.maxAdds;
+  const retake = !first && !!rules.retakeTp && log.tpPx != null && log.count >= 2;
+  if (!first && !retake) return log;
+  const { trimmed: _t, level: _l, prevTs: _p, ...rest } = log;
+  const tpPx = first && px && px > 0 ? px : log.tpPx;
+  return { ...rest, count: 1, ...(tpPx != null ? { tpPx } : {}) };
 }
 
 /** Bars entry `n` (2 or more) waits after the entry before it. */
@@ -224,7 +256,8 @@ export function barsBetween(fromTs: number, now: number, periodMs: number): numb
 /**
  * The full call, live and in the backtest: stop loss first (percent, then the swing stop
  * once the last entry is in), then the live far-line exit,
- * then the take profit at the first entry's price (after the last entry), then the partial
+ * then the take profit at the first entry's price (after the last entry), then the retake
+ * at that take profit's price (after the re-entry), then the partial
  * take profit at the channel middle, then the script's lines,
  * then the channel-middle exit, then adds. `price` is the price this tick; `last` is the
  * bar the lines are read on (forming, or the last closed one with onBarClose). `entry` is
@@ -261,7 +294,13 @@ export function strategyCall(
       return { intent: "close", bias: side, reason: `back to entry 1 price ${log.firstPx}, take ${pct}% of ${side}`, lines, closeFraction: rules.firstPriceTp };
     }
   }
-  if (rules.partialTp && side !== "flat" && price > 0 && !trimmed && (scale?.entries?.count ?? 1) === 1) {
+  if (rules.retakeTp && side !== "flat" && price > 0 && !trimmed && log && log.tpPx && log.count >= 2 && log.count < 1 + rules.maxAdds) {
+    if (side === "long" ? price >= log.tpPx : price <= log.tpPx) {
+      const pct = +(rules.retakeTp * 100).toFixed(2);
+      return { intent: "close", bias: side, reason: `back to take profit price ${log.tpPx} after re-entry, take ${pct}% of ${side}`, lines, closeFraction: rules.retakeTp };
+    }
+  }
+  if (rules.partialTp && side !== "flat" && price > 0 && !trimmed && (scale?.entries?.count ?? 1) === 1 && log?.tpPx == null) {
     const mid = (lines.emaHigh + lines.emaLow) / 2;
     if (side === "long" ? price >= mid : price <= mid) {
       const pct = +(rules.partialTp * 100).toFixed(2);

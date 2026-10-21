@@ -143,3 +143,15 @@ test("withBalance runs the balance oldest first and keeps the given order", () =
   expect(out[1]!.balance).toBeCloseTo(104, 9);   // 100 + 5 - 1
   expect(out[0]!.balance).toBeCloseTo(100.5, 9); // then - 3 - 0.5
 });
+
+test("a re-entry after the first-price take profit is marked with its own round", () => {
+  const t = trade({
+    side: "long", entryTs: 0, exitTs: null, size: 1,
+    entries: [{ ts: 0, px: 100, size: 1 }, { ts: H, px: 99, size: 1 }, { ts: 2 * H, px: 98, size: 1 }, { ts: 3 * H, px: 99, size: 1, round: 2 }],
+  });
+  const marks = backtestMarks([t], "1H", new Set([0, 3600, 7200, 10800]));
+  expect(marks.map((m) => m.text)).toEqual(["BT 롱 1 보유중", "BT 롱 2차 1 보유중", "BT 롱 3차 1 보유중", "BT 롱 2차 1 보유중"]);
+  const labels = backtestDetail(t, "BTC", 5).rows.map((r) => r.label);
+  expect(labels).toContain("2차 재진입");
+  expect(labels).toContain("3차 진입");
+});

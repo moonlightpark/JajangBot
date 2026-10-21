@@ -146,6 +146,8 @@ export const config = {
   strategySwingStop: env("STRATEGY_SWING_STOP") === "true",
   /** Share taken at the first entry's price once every entry is in ("2/3"). Empty: off. */
   strategyFirstPriceTp: resolveShare("STRATEGY_FIRST_PRICE_TP", env("STRATEGY_FIRST_PRICE_TP")),
+  /** Share taken after the re-entry, back at the first-price take profit's price ("50"). Empty: off. */
+  strategyRetakeTp: resolveShare("STRATEGY_RETAKE_TP", env("STRATEGY_RETAKE_TP")),
   /** Share taken at the channel middle after the first entry (70 -> 0.7). Empty: off. */
   strategyPartialTp: resolvePartialTp(env("STRATEGY_PARTIAL_TP_PCT")),
   /** Adds (물타기) after the first entry, same side. 0: none, as in the script. */

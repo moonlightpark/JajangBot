@@ -190,8 +190,12 @@ export interface BacktestTrade {
   entryTs: number;
   /** Average entry over all entries. */
   entryPx: number;
-  /** Every entry, oldest first, when there was more than one (adds, 물타기). */
-  entries?: { ts: number; px: number; size: number }[];
+  /**
+   * Every entry, oldest first, when there was more than one (adds, 물타기). `round` is the
+   * entry number when it differs from the position in the list (re-entries after the
+   * take profit at the first entry price count from entry 2 again).
+   */
+  entries?: { ts: number; px: number; size: number; round?: number }[];
   /** null while still open at the end of the data. */
   exitTs: number | null;
   exitPx: number;

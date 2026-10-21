@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { closedNetByCoin, EmaStep, orderSize, readBacktestReport, runBacktest, type BacktestOpts } from "../src/backtest";
 import type { Ohlc } from "../src/chart";
-import { emaSeries } from "../src/strategy";
+import { emaSeries, firstPriceRestart, SCRIPT_RULES, strategyCall } from "../src/strategy";
 
 const M = 60_000;
 const Q = 15 * M;
@@ -188,6 +188,88 @@ test("firstPriceTp closes 2/3 at the first entry's price after the last add and 
   expect(part!.size + rest!.size).toBeCloseTo(0.408 + 0.41 + 0.412, 9); // $40 at 98, 97.5, 97
   expect(part!.size).toBeCloseTo(0.82, 9); // 2/3 of 1.23
   expect(rest!.exitTs).toBeNull();
+});
+
+test("after the 2/3 take profit the rest counts as entry 1, so the next signal is entry 2 and the cycle repeats", () => {
+  const t0 = WARM * M;
+  const dip = (ts: number, px: number) => [bar(ts, { low: px - 0.5, close: px }), bar(ts + M, { low: px - 0.5, close: px })];
+  const rows = [
+    ...calm(WARM),
+    ...dip(t0, 98),                       // entry 1 at 98
+    ...calm(20, t0 + 2 * M),
+    ...dip(t0 + 22 * M, 97.5),            // entry 2
+    ...calm(20, t0 + 24 * M),
+    ...dip(t0 + 44 * M, 97),              // entry 3
+    bar(t0 + 46 * M, { close: 98 }),      // back to entry 1: take 2/3, the rest is entry 1
+    ...calm(20, t0 + 47 * M),
+    ...dip(t0 + 67 * M, 97.5),            // re-entry: entry 2
+    ...calm(20, t0 + 69 * M),
+    ...dip(t0 + 89 * M, 97),              // entry 3 again
+    bar(t0 + 91 * M, { close: 98 }),      // back to entry 1 again: take 2/3 again
+    ...calm(5, t0 + 92 * M),
+  ];
+  const r = runBacktest(rows, { ...opts, maxAdds: 2, addGapBars: [1], firstPriceTp: 2 / 3 });
+  const parts = r.trades.filter((t) => t.partial);
+  expect(parts).toHaveLength(2);
+  expect(parts.map((t) => t.exitPx)).toEqual([98, 98]);
+  const last = r.trades.at(-1)!;
+  expect(last.exitTs).toBeNull();
+  expect(last.entries?.map((e) => e.round)).toEqual([undefined, undefined, undefined, 2, 3]);
+});
+
+test("after the re-entry (entry 2), the price of the 2/3 take profit takes 50%, and the rest is entry 1 again", () => {
+  const t0 = WARM * M;
+  const dip = (ts: number, px: number) => [bar(ts, { low: px - 0.5, close: px }), bar(ts + M, { low: px - 0.5, close: px })];
+  const rows = [
+    ...calm(WARM),
+    ...dip(t0, 98),                       // entry 1 at 98
+    ...calm(20, t0 + 2 * M),
+    ...dip(t0 + 22 * M, 97.5),            // entry 2
+    ...calm(20, t0 + 24 * M),
+    ...dip(t0 + 44 * M, 97),              // entry 3
+    bar(t0 + 46 * M, { high: 98.3, close: 98.2 }), // past entry 1: take 2/3 at 98.2
+    ...calm(20, t0 + 47 * M),
+    ...dip(t0 + 67 * M, 97.5),            // re-entry: entry 2
+    bar(t0 + 69 * M, { high: 98.1, close: 98.1 }), // under 98.2: holds
+    bar(t0 + 70 * M, { high: 98.25, close: 98.2 }), // back to 98.2: take 50%
+    ...calm(20, t0 + 71 * M),
+    ...dip(t0 + 91 * M, 97.5),            // entry 2 again (back at 98.2 it would take 50% again)
+    bar(t0 + 93 * M, { close: 97.6 }),
+  ];
+  const r = runBacktest(rows, { ...opts, maxAdds: 2, addGapBars: [1], firstPriceTp: 2 / 3, retakeTp: 0.5 });
+  const parts = r.trades.filter((t) => t.partial);
+  expect(parts.map((t) => t.exitPx)).toEqual([98.2, 98.2]);
+  // 1.23 held: 2/3 is 0.82, the rest 0.41 plus the re-entry 0.41 is 0.82, and 50% of it is 0.41.
+  expect(parts[0]!.size).toBeCloseTo(0.82, 9);
+  expect(parts[1]!.size).toBeCloseTo(0.41, 9);
+  const last = r.trades.at(-1)!;
+  expect(last.exitTs).toBeNull();
+  expect(last.entries?.map((e) => e.round)).toEqual([undefined, undefined, undefined, 2, 2]);
+});
+
+test("strategyCall retakes only after a re-entry, at the recorded take profit price", () => {
+  const rules = { ...SCRIPT_RULES, maxAdds: 2, firstPriceTp: 2 / 3, retakeTp: 0.5 };
+  const lines = { emaHigh: 101, emaLow: 99, shortLine: 110, longLine: 90 };
+  const last = { ts: 0, open: 100, high: 100, low: 100, close: 100 };
+  const call = (count: number, price: number, tpPx?: number) =>
+    strategyCall(lines, last, "long", price, 99, rules, { entries: { side: "long", count, lastTs: 0, size: 1, firstPx: 99.5, tpPx }, now: 0, periodMs: 1 });
+  expect(call(2, 100, 100)).toMatchObject({ intent: "close", closeFraction: 0.5 });
+  expect(call(2, 99.9, 100).intent).toBe("hold");
+  expect(call(2, 100).intent).toBe("hold");    // a first entry 2, no take profit before it
+  expect(call(1, 100, 100).intent).toBe("hold"); // the rest alone waits for the re-entry
+});
+
+test("firstPriceRestart counts the rest as entry 1 only after that take profit", () => {
+  const rules = { ...SCRIPT_RULES, maxAdds: 2, firstPriceTp: 2 / 3 };
+  const log = { side: "long" as const, count: 3, lastTs: 5, size: 1, trimmed: true, prevTs: 3, level: 95, firstPx: 98 };
+  expect(firstPriceRestart(log, rules, 98.2)).toEqual({ side: "long", count: 1, lastTs: 5, size: 1, firstPx: 98, tpPx: 98.2 });
+  // The retake after the re-entry keeps the recorded price.
+  const retake = { ...log, count: 2, tpPx: 98.2 };
+  expect(firstPriceRestart(retake, { ...rules, retakeTp: 0.5 }, 98.3)).toMatchObject({ count: 1, tpPx: 98.2 });
+  expect(firstPriceRestart(retake, rules, 98.3)).toBe(retake); // retake off
+  expect(firstPriceRestart({ ...log, trimmed: false }, rules)).toEqual({ ...log, trimmed: false });
+  expect(firstPriceRestart({ ...log, count: 1 }, rules)).toEqual({ ...log, count: 1 }); // the middle take profit
+  expect(firstPriceRestart(log, { ...rules, firstPriceTp: null })).toBe(log);
 });
 
 test("closedNetByCoin sums closed trades after fees and leaves open ones out", async () => {

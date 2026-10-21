@@ -1,7 +1,7 @@
 import { snapToStep } from "./book";
 import type { Ohlc } from "./chart";
 import { closeSize, liveIntent } from "./plan";
-import { MAGINGA, rearm, strategyCall, type MagingaLines, type MagingaParams, type StrategyRules } from "./strategy";
+import { firstPriceRestart, MAGINGA, rearm, strategyCall, type MagingaLines, type MagingaParams, type StrategyRules } from "./strategy";
 import type { BacktestReport, BacktestTrade } from "./types";
 
 export type { BacktestTrade };
@@ -64,6 +64,8 @@ export interface BacktestOpts {
   swingStop?: boolean;
   /** Share taken at the first entry's price once every entry is in. */
   firstPriceTp?: number | null;
+  /** Share taken after the re-entry, back at the first-price take profit's price. */
+  retakeTp?: number | null;
   /** Adds (물타기) after the first entry, same side, each its `addGapBars` 15m bars after the last. 0: none. */
   maxAdds?: number;
   addGapBars?: number[];
@@ -143,13 +145,19 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     partialTp: o.partialTp ?? null,
     swingStop: o.swingStop ?? false,
     firstPriceTp: o.firstPriceTp ?? null,
+    retakeTp: o.retakeTp ?? null,
     maxAdds: o.maxAdds ?? 0,
     addGapBars: o.addGapBars ?? [50],
   };
   let pending: Pending | null = null;
-  type Entry = { ts: number; px: number; size: number };
+  /** `round` is the entry number the strategy counted, which restarts after the first-price take profit. */
+  type Entry = { ts: number; px: number; size: number; round?: number };
   /** entryPx is the average over `entries`. */
   type Pos = { side: "long" | "short"; entryTs: number; entryPx: number; size: number; fee: number; worst: number; entries: Entry[]; trimmed?: boolean;
+    /** The entry number the strategy counts (entries.length until a first-price take profit restarts it). */
+    count: number;
+    /** The price the last first-price take profit closed at. */
+    tpPx?: number;
     /** Lowest low (long) or highest high (short) since the last entry; `level` freezes it at the last entry. */
     ext: number; level?: number };
   let pos: Pos | null = null;
@@ -191,12 +199,13 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
         if (held && held.side === pending.side) {
           // An add: the position averages in. The last add fixes the swing stop at the extreme since the add before.
           const size = held.size + e.size;
-          const entries = [...held.entries, e];
+          const count = held.count + 1;
+          const entries = [...held.entries, count === held.entries.length + 1 ? e : { ...e, round: count }];
           const ext = held.side === "long" ? Math.min(held.ext, far) : Math.max(held.ext, far);
-          const level = entries.length >= 1 + rules.maxAdds ? ext : held.level;
-          pos = { ...held, entryPx: (held.entryPx * held.size + e.px * e.size) / size, size, fee: held.fee + fee, entries, ext: far, level };
+          const level = count >= 1 + rules.maxAdds ? ext : held.level;
+          pos = { ...held, entryPx: (held.entryPx * held.size + e.px * e.size) / size, size, fee: held.fee + fee, entries, count, ext: far, level };
         } else {
-          pos = { side: pending.side, entryTs: b.ts, entryPx: e.px, size: e.size, fee, worst: 0, entries: [e], ext: far };
+          pos = { side: pending.side, entryTs: b.ts, entryPx: e.px, size: e.size, fee, worst: 0, entries: [e], count: 1, ext: far };
         }
         pending = null;
       }
@@ -242,7 +251,7 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     if (last && Number.isFinite(emaHigh) && Number.isFinite(emaLow)) {
       const lines: MagingaLines = { emaHigh, emaLow, shortLine: emaHigh * (1 + p.shortBand), longLine: emaLow * (1 - p.longBand) };
       const entries = pos
-        ? { side: pos.side, count: pos.entries.length, lastTs: pos.entries.at(-1)!.ts, size: pos.size, trimmed: pos.trimmed, level: pos.level, firstPx: pos.entries[0]!.px }
+        ? { side: pos.side, count: pos.count, lastTs: pos.entries.at(-1)!.ts, size: pos.size, trimmed: pos.trimmed, level: pos.level, firstPx: pos.entries[0]!.px, tpPx: pos.tpPx }
         : null;
       let call = strategyCall(lines, last, side, b.close, pos ? pos.entryPx : null, rules, { entries, now: tickTs, periodMs: p.periodMs });
       if (call.stopped && pos) {
@@ -262,7 +271,16 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     } else {
       if (pending) missed++;
       pending = null;
-      if (intent === "close" && pos) close(tickTs, b.close, closeSize(pos.size, fraction, o.qtyStep));
+      if (intent === "close" && pos) {
+        close(tickTs, b.close, closeSize(pos.size, fraction, o.qtyStep));
+        // After the first-price take profit or the retake the rest counts as entry 1 again, as live.
+        const held = pos as Pos | null;
+        if (held?.trimmed) {
+          const log = { side: held.side, count: held.count, lastTs: 0, size: held.size, trimmed: true, tpPx: held.tpPx };
+          const next = firstPriceRestart(log, rules, b.close);
+          if (next !== log) pos = { ...held, count: 1, trimmed: false, level: undefined, tpPx: next!.tpPx };
+        }
+      }
     }
 
     const unrealized = pos ? (pos.side === "long" ? b.close - pos.entryPx : pos.entryPx - b.close) * pos.size : 0;

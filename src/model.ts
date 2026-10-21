@@ -3,7 +3,7 @@ import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { assertJevCredentials, config } from "./config";
 import { clampLeverage, leverageRungs, liveIntent, parseLeverage, quoteAction, type Bias, type Intent } from "./plan";
 import type { Ohlc } from "./chart";
-import { closedBars, MAGINGA, magingaLines, rearm, strategyCall, swingLevel, trackEntries, withLiveBar, type EntryLog, type MagingaParams, type StrategyRules } from "./strategy";
+import { closedBars, firstPriceRestart, MAGINGA, magingaLines, rearm, strategyCall, swingLevel, trackEntries, withLiveBar, type EntryLog, type MagingaParams, type StrategyRules } from "./strategy";
 import type { Action, Side, StrategyLevels } from "./types";
 
 /** What the model sees. Compact, relative, human-readable. */
@@ -424,6 +424,7 @@ export const liveStrategy: { params: MagingaParams; rules: StrategyRules } = {
     partialTp: config.strategyPartialTp,
     swingStop: config.strategySwingStop,
     firstPriceTp: config.strategyFirstPriceTp,
+    retakeTp: config.strategyRetakeTp,
     maxAdds: config.strategyMaxAdds,
     addGapBars: config.strategyAddGapBars,
   },
@@ -436,7 +437,8 @@ export function describeStrategy(s = liveStrategy): string {
   if (s.rules.exit !== "opposite") parts.push(`exit ${s.rules.exit}`);
   if (s.rules.onBarClose) parts.push("bar close");
   if (s.rules.exitLive) parts.push("live take profit");
-  if (s.rules.firstPriceTp) parts.push(`take ${+(s.rules.firstPriceTp * 100).toFixed(2)}% at entry 1 price after entry ${1 + s.rules.maxAdds}`);
+  if (s.rules.firstPriceTp) parts.push(`take ${+(s.rules.firstPriceTp * 100).toFixed(2)}% at entry 1 price after entry ${1 + s.rules.maxAdds}, then the rest is entry 1`);
+  if (s.rules.retakeTp) parts.push(`take ${+(s.rules.retakeTp * 100).toFixed(2)}% at that price after re-entry`);
   if (s.rules.swingStop) parts.push(`swing stop after entry ${1 + s.rules.maxAdds}`);
   if (s.rules.partialTp) parts.push(`take ${+(s.rules.partialTp * 100).toFixed(2)}% at middle`);
   if (s.rules.maxAdds) parts.push(`adds ${s.rules.maxAdds} after ${s.rules.addGapBars.join("/")} bars`);
@@ -456,6 +458,8 @@ export class StrategyModel implements Model {
   private blocked: "long" | "short" | null = null;
   /** Entries into the open position, read off the position each tick. Gates adds. */
   private entries: EntryLog | null = null;
+  /** The price of the last partial close this model called, for the retake take profit. */
+  private partialPx: number | undefined;
 
   constructor(
     /** 15m candles, oldest first. */
@@ -470,7 +474,9 @@ export class StrategyModel implements Model {
     const { params: p, rules } = this.strategy;
     const side = state.position.side;
     const now = this.now();
-    this.entries = trackEntries(this.entries, side, state.position.size, now);
+    const tracked = trackEntries(this.entries, side, state.position.size, now);
+    this.entries = firstPriceRestart(tracked, rules, this.partialPx ?? state.mid);
+    if (this.entries !== tracked) console.log(`${state.coin} strategy ${p.timeframe}: took profit after entry ${tracked!.count}, the rest counts as entry 1 (take profit price ${this.entries!.tpPx})`);
     // The first entry's price: the average while only one entry is in.
     if (this.entries && this.entries.count === 1 && this.entries.firstPx == null && state.position.entry) {
       this.entries = { ...this.entries, firstPx: state.position.entry };
@@ -514,7 +520,10 @@ export class StrategyModel implements Model {
       inputTokens: 0,
     });
     if (call.lines) decision.levels = { long: call.lines.longLine, short: call.lines.shortLine, timeframe: p.timeframe };
-    if (intent === "close" && call.closeFraction) decision.closeFraction = call.closeFraction;
+    if (intent === "close" && call.closeFraction) {
+      decision.closeFraction = call.closeFraction;
+      this.partialPx = state.mid;
+    }
     return decision;
   }
 }

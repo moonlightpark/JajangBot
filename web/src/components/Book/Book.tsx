@@ -18,6 +18,12 @@ const HISTORY_CAP = 2000;
 
 const day = (ts: number) => new Date(ts).toISOString().slice(0, 10).replaceAll("-", ".");
 
+/** Size with the order amount at the entry price: "0.012($300)". */
+function fmtSizeUsd(size: number, px: number | null | undefined): string {
+  const usd = px != null && px > 0 ? size * px : null;
+  return usd != null ? `${fmtSize(size)}($${Math.round(usd).toLocaleString("en-US")})` : fmtSize(size);
+}
+
 function fmtSize(size: number): string {
   if (size > 0 && size < 0.01) {
     return size.toLocaleString("en-US", { maximumFractionDigits: 5, minimumFractionDigits: 3 });
@@ -321,7 +327,7 @@ export default function Book({
                       <td title={lot.openedTs ? `진입 ${fmtDateTime(lot.openedTs)}` : undefined}>{fmtDateTime(lot.ts)}</td>
                       <td>{displayCoin(lot.coin)}</td>
                       <td style={{ color: sideColor }}>{SIDE_KO[lot.side] ?? lot.side}</td>
-                      <td>{fmtSize(lot.size)}</td>
+                      <td>{fmtSizeUsd(lot.size, lot.entry ?? lot.exit)}</td>
                       <td>{lot.entry != null ? fmtPrice(lot.entry) : "-"}</td>
                       <td>{fmtPrice(lot.exit)}</td>
                       <td style={{ color: pnlColor }}>{fmtSignedUsd(lot.pnl, 2)}</td>
