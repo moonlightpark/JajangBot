@@ -6,7 +6,7 @@ import type { BacktestReport } from "@/lib/bot-types";
 import { backtestLots, lotSummary } from "@/lib/backtest";
 import { closedLots, tapeFills } from "@/lib/fills";
 import { roePct } from "@/lib/pnl";
-import { displayCoin, fmtClock, fmtCoin, fmtDateTime, fmtPct, fmtPrice, fmtSignedUsd, fmtUsd, shortTx, txUrl } from "@/lib/format";
+import { displayCoin, fmtClock, fmtCoin, fmtDateTime, fmtPct, fmtPrice, fmtSignedUsd, fmtUsd, shortTx, SIDE_KO, txUrl } from "@/lib/format";
 import { Bone } from "@/components/Skeleton/Skeleton";
 import styles from "./Book.module.css";
 
@@ -16,7 +16,7 @@ const TRADE_CAP = 200;
 /** Three months of backtest trades on every coin fit, with room for the bot's own. */
 const HISTORY_CAP = 2000;
 
-const day = (ts: number) => new Date(ts).toISOString().slice(0, 10);
+const day = (ts: number) => new Date(ts).toISOString().slice(0, 10).replaceAll("-", ".");
 
 function fmtSize(size: number): string {
   if (size > 0 && size < 0.01) {
@@ -84,7 +84,7 @@ export default function Book({
 
   return (
     <section className={styles.wrap}>
-      <div className={styles.tabs} role="tablist" aria-label="Account book">
+      <div className={styles.tabs} role="tablist" aria-label="계좌 내역">
         <button
           type="button"
           className={tab === "positions" ? styles.tabOn : styles.tab}
@@ -92,7 +92,7 @@ export default function Book({
           aria-selected={tab === "positions"}
           onClick={() => setTab("positions")}
         >
-          Positions
+          포지션
         </button>
         <button
           type="button"
@@ -104,7 +104,7 @@ export default function Book({
             onNeedMoreTape?.();
           }}
         >
-          Trades
+          체결
         </button>
         <button
           type="button"
@@ -116,7 +116,7 @@ export default function Book({
             onNeedMoreTape?.();
           }}
         >
-          History
+          거래기록
         </button>
         {tab === "trades" || tab === "history" ? (
           <span className={styles.scope}>
@@ -132,17 +132,17 @@ export default function Book({
               className={allMarkets ? styles.scopeOn : styles.scopeBtn}
               onClick={() => setAllMarkets(true)}
             >
-              All
+              전체
             </button>
             {tab === "history" && backtest ? (
               <button
                 type="button"
                 className={showBacktest ? styles.scopeOn : styles.scopeBtn}
                 aria-pressed={showBacktest}
-                title="Simulated trades from bun run backtest (strategy rules on past candles). Not real fills, not Jev."
+                title="bun run backtest(과거 캔들에 전략 규칙 적용)의 가상 거래. 실제 체결이 아니며 Jev 판단도 아닙니다."
                 onClick={() => setShowBacktest((v) => !v)}
               >
-                Backtest
+                백테스트
               </button>
             ) : null}
           </span>
@@ -153,15 +153,15 @@ export default function Book({
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>Market</th>
-                <th>Side</th>
-                <th>Size</th>
-                <th>Entry</th>
-                <th>Mark</th>
-                <th>Value</th>
-                <th>Unrealized</th>
-                <th>ROE</th>
-                <th>Lev</th>
+                <th>종목</th>
+                <th>방향</th>
+                <th>수량</th>
+                <th>진입가</th>
+                <th>현재가</th>
+                <th>평가금액</th>
+                <th>평가손익</th>
+                <th>수익률</th>
+                <th>레버리지</th>
               </tr>
             </thead>
             <tbody>
@@ -187,7 +187,7 @@ export default function Book({
                 const value = open && mark != null ? pos!.size * mark : null;
                 const u = open ? pos!.unrealizedUsd : 0;
                 const roe = roePct(pos);
-                const side = (pos?.side ?? "flat").toUpperCase();
+                const side = SIDE_KO[pos?.side ?? "flat"] ?? "";
                 const sideColor =
                   pos?.side === "long" ? "var(--buy-ink)" : pos?.side === "short" ? "var(--sell-ink)" : undefined;
                 const pnlColor = open ? (u >= 0 ? "var(--pnl-pos)" : "var(--pnl-neg)") : undefined;
@@ -219,19 +219,19 @@ export default function Book({
         </div>
       ) : tab === "history" ? (
         waiting && history.length === 0 ? (
-          <div className={styles.scroller} aria-busy="true" aria-label="Loading history">
+          <div className={styles.scroller} aria-busy="true" aria-label="거래기록 불러오는 중">
             <table className={styles.table}>
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Market</th>
-                  <th>Side</th>
-                  <th>Size</th>
-                  <th>Entry</th>
-                  <th>Exit</th>
-                  <th>PnL</th>
-                  <th>Fee</th>
-                  <th>Source</th>
+                  <th>시간</th>
+                  <th>종목</th>
+                  <th>방향</th>
+                  <th>수량</th>
+                  <th>진입가</th>
+                  <th>청산가</th>
+                  <th>손익</th>
+                  <th>수수료</th>
+                  <th>구분</th>
                 </tr>
               </thead>
               <tbody>
@@ -252,32 +252,32 @@ export default function Book({
             </table>
           </div>
         ) : history.length === 0 ? (
-          <div className={styles.empty}>no closed lots yet</div>
+          <div className={styles.empty}>청산된 거래가 없습니다</div>
         ) : (
           <div className={styles.scroller}>
             {showBacktest && btSummary.trades && backtest ? (
               <div className={styles.btSummary}>
-                <span className={styles.btTag}>backtest (simulated)</span>
-                <span>{day(backtest.from)} to {day(backtest.to)}</span>
-                <span>{btSummary.trades} closed</span>
-                <span>win {Math.round((btSummary.wins / btSummary.trades) * 100)}%</span>
+                <span className={styles.btTag}>백테스트 (가상)</span>
+                <span>{day(backtest.from)} ~ {day(backtest.to)}</span>
+                <span>청산 {btSummary.trades}건</span>
+                <span>승률 {Math.round((btSummary.wins / btSummary.trades) * 100)}%</span>
                 <span style={{ color: btSummary.netUsd >= 0 ? "var(--pnl-pos)" : "var(--pnl-neg)" }}>
-                  net {fmtSignedUsd(btSummary.netUsd, 2)}
+                  순손익 {fmtSignedUsd(btSummary.netUsd, 2)}
                 </span>
               </div>
             ) : null}
             <table className={styles.table}>
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Market</th>
-                  <th>Side</th>
-                  <th>Size</th>
-                  <th>Entry</th>
-                  <th>Exit</th>
-                  <th>PnL</th>
-                  <th>Fee</th>
-                  <th>Source</th>
+                  <th>시간</th>
+                  <th>종목</th>
+                  <th>방향</th>
+                  <th>수량</th>
+                  <th>진입가</th>
+                  <th>청산가</th>
+                  <th>손익</th>
+                  <th>수수료</th>
+                  <th>구분</th>
                 </tr>
               </thead>
               <tbody>
@@ -286,15 +286,15 @@ export default function Book({
                   const pnlColor = lot.pnl >= 0 ? "var(--pnl-pos)" : "var(--pnl-neg)";
                   return (
                     <tr key={`${lot.coin}|${lot.key}`} onClick={() => onSelect(lot.coin)}>
-                      <td title={lot.openedTs ? `opened ${fmtDateTime(lot.openedTs)}` : undefined}>{fmtDateTime(lot.ts)}</td>
+                      <td title={lot.openedTs ? `진입 ${fmtDateTime(lot.openedTs)}` : undefined}>{fmtDateTime(lot.ts)}</td>
                       <td>{displayCoin(lot.coin)}</td>
-                      <td style={{ color: sideColor }}>{lot.side.toUpperCase()}</td>
+                      <td style={{ color: sideColor }}>{SIDE_KO[lot.side] ?? lot.side}</td>
                       <td>{fmtSize(lot.size)}</td>
                       <td>{lot.entry != null ? fmtPrice(lot.entry) : "-"}</td>
                       <td>{fmtPrice(lot.exit)}</td>
                       <td style={{ color: pnlColor }}>{fmtSignedUsd(lot.pnl, 2)}</td>
                       <td>{lot.fee ? fmtUsd(lot.fee, 2) : "-"}</td>
-                      <td className={lot.backtest ? styles.btTag : undefined}>{lot.backtest ? "backtest" : "bot"}</td>
+                      <td className={lot.backtest ? styles.btTag : undefined}>{lot.backtest ? "백테스트" : "봇"}</td>
                     </tr>
                   );
                 })}
@@ -303,17 +303,17 @@ export default function Book({
           </div>
         )
       ) : waiting && trades.length === 0 ? (
-        <div className={styles.scroller} aria-busy="true" aria-label="Loading trades">
+        <div className={styles.scroller} aria-busy="true" aria-label="체결 불러오는 중">
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Market</th>
-                <th>Side</th>
-                <th>Action</th>
-                <th>Price</th>
-                <th>Size</th>
-                <th>Tx</th>
+                <th>시간</th>
+                <th>종목</th>
+                <th>방향</th>
+                <th>유형</th>
+                <th>체결가</th>
+                <th>수량</th>
+                <th>거래 ID</th>
               </tr>
             </thead>
             <tbody>
@@ -332,30 +332,30 @@ export default function Book({
           </table>
         </div>
       ) : trades.length === 0 ? (
-        <div className={styles.empty}>no trades yet</div>
+        <div className={styles.empty}>체결 내역이 없습니다</div>
       ) : (
         <div className={styles.scroller}>
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Market</th>
-                <th>Side</th>
-                <th>Action</th>
-                <th>Price</th>
-                <th>Size</th>
-                <th>Tx</th>
+                <th>시간</th>
+                <th>종목</th>
+                <th>방향</th>
+                <th>유형</th>
+                <th>체결가</th>
+                <th>수량</th>
+                <th>거래 ID</th>
               </tr>
             </thead>
             <tbody>
               {trades.map((fill) => {
                 const sideColor = fill.side === "buy" ? "var(--buy-ink)" : "var(--sell-ink)";
-                const action = fill.dir === "open" ? "OPEN" : fill.dir === "close" ? "CLOSE" : fill.dir === "flip" ? "FLIP" : "FILL";
+                const action = fill.dir === "open" ? "진입" : fill.dir === "close" ? "청산" : fill.dir === "flip" ? "전환" : "체결";
                 return (
                   <tr key={`${fill.coin}|${fill.key}`} onClick={() => onSelect(fill.coin)}>
                     <td>{fmtClock(fill.ts, true)}</td>
                     <td>{displayCoin(fill.coin)}</td>
-                    <td style={{ color: sideColor }}>{fill.side.toUpperCase()}</td>
+                    <td style={{ color: sideColor }}>{SIDE_KO[fill.side] ?? fill.side}</td>
                     <td style={{ color: sideColor }}>{action}</td>
                     <td>{fmtPrice(fill.price)}</td>
                     <td>{fmtSize(fill.size)}</td>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { BlockEvent, Meta, PricePoint } from "@/lib/types";
-import { fmtCall, fmtPrice } from "@/lib/format";
+import { fmtCall, fmtPrice, HOLD_KO, LATE_KO } from "@/lib/format";
 import { backtestMarks } from "@/lib/backtest";
 import type { BacktestReport, ChannelPoint } from "@/lib/bot-types";
 import { channelForView } from "@/lib/levels";
@@ -15,13 +15,13 @@ import styles from "./FlowChart.module.css";
 const SKELETON_CANDLES = [42, 48, 36, 55, 62, 50, 44, 70, 64, 58, 46, 40, 52, 68, 74, 60, 48, 38, 45, 56, 63, 71, 66, 54, 47, 41, 49, 57, 61, 53];
 
 const INTERVALS: { id: BarSize; label: string }[] = [
-  { id: "1s", label: "1s" },
-  { id: "1m", label: "1m" },
-  { id: "5m", label: "5m" },
-  { id: "15m", label: "15m" },
-  { id: "1H", label: "1H" },
-  { id: "4H", label: "4H" },
-  { id: "1D", label: "1D" },
+  { id: "1s", label: "1초" },
+  { id: "1m", label: "1분" },
+  { id: "5m", label: "5분" },
+  { id: "15m", label: "15분" },
+  { id: "1H", label: "1시간" },
+  { id: "4H", label: "4시간" },
+  { id: "1D", label: "1일" },
 ];
 
 const DEFAULT_INTERVAL: BarSize = "15m";
@@ -75,7 +75,7 @@ export default function FlowChart({
   const shown = latest ?? events[events.length - 1] ?? null;
   const d = shown?.decision ?? null;
   const late = d?.late === true;
-  const word = late ? "LATE" : fmtCall(d) || "HOLD";
+  const word = late ? LATE_KO : fmtCall(d) || HOLD_KO;
   const wordColor = late
     ? "var(--late-ink)"
     : d?.intent === "hold" || d?.action === "hold"
@@ -110,9 +110,9 @@ export default function FlowChart({
 
   return (
     <div className={styles.wrap}>
-      <div className={styles.panel} role="img" aria-label="Price candles. Use the interval buttons.">
+      <div className={styles.panel} role="img" aria-label="가격 캔들 차트. 주기 버튼으로 바꿀 수 있습니다.">
         {!model ? (
-          <div className={styles.skel} aria-busy="true" aria-label="Loading prices">
+          <div className={styles.skel} aria-busy="true" aria-label="시세 불러오는 중">
             <div className={styles.skelPrice}>
               <Bone w={108} h={28} />
               <span className={styles.skelSub}>
@@ -151,7 +151,7 @@ export default function FlowChart({
               <div className={styles.price}>{fmtPrice(lastPx)}</div>
               <div className={styles.sub}>
                 <span>{meta?.pair ?? "BTC-USDT"}</span>
-                <span>{interval}</span>
+                <span>{INTERVALS.find((s) => s.id === interval)?.label ?? interval}</span>
                 <span className={styles.wordMobile} style={{ color: wordColor }}>
                   {word}
                 </span>
@@ -163,18 +163,18 @@ export default function FlowChart({
               </div>
             </div>
             <div className={styles.legend} aria-hidden="true">
-              <span className={styles.legUp}>up</span>
-              <span className={styles.legDown}>down</span>
-              <span className={styles.legBuy}>buy</span>
-              <span className={styles.legSell}>sell</span>
-              <span className={styles.legEntry}>entry</span>
-              {channel ? <span className={styles.legLevels}>strategy {levels?.timeframe ?? "15m"}</span> : null}
+              <span className={styles.legUp}>상승</span>
+              <span className={styles.legDown}>하락</span>
+              <span className={styles.legBuy}>매수</span>
+              <span className={styles.legSell}>매도</span>
+              <span className={styles.legEntry}>진입가</span>
+              {channel ? <span className={styles.legLevels}>전략 채널 {(levels?.timeframe ?? "15m").replace("m", "분")}</span> : null}
               {showBacktest && btTrades.length ? (
                 <>
-                  <span className={styles.legBacktest}>BT entry</span>
-                  <span className={styles.legBtWin}>BT win</span>
-                  <span className={styles.legBtLoss}>BT loss</span>
-                  <span>(simulated, hover for details)</span>
+                  <span className={styles.legBacktest}>BT 진입</span>
+                  <span className={styles.legBtWin}>BT 수익</span>
+                  <span className={styles.legBtLoss}>BT 손실</span>
+                  <span>(가상, 마우스를 올리면 상세)</span>
                 </>
               ) : null}
             </div>
@@ -199,7 +199,7 @@ export default function FlowChart({
             type="button"
             className={`${styles.tool} ${i === 0 ? styles.toolGroup : ""} ${zone.id === z.id ? styles.toolOn : ""}`}
             aria-pressed={zone.id === z.id}
-            title="Chart time zone. Bars stay on UTC boundaries; labels move."
+            title="차트 시간대. 봉 경계는 UTC 그대로이고 표시 시각만 바뀝니다."
             onClick={() => setZone(z)}
           >
             {z.label}
@@ -210,7 +210,7 @@ export default function FlowChart({
             type="button"
             className={`${styles.tool} ${styles.toolGap} ${showBacktest ? styles.toolOn : ""}`}
             aria-pressed={showBacktest}
-            title="Simulated trades from bun run backtest (TradingView strategy rules on past candles). Not real fills, not Jev."
+            title="bun run backtest(과거 캔들에 TradingView 전략 규칙 적용)의 가상 거래. 실제 체결이 아니며 Jev 판단도 아닙니다."
             onClick={() => setShowBacktest((v) => !v)}
           >
             BT

@@ -1,49 +1,55 @@
 :root {
+  /* Korean exchange look: white panels on a light grey page, soft grey rules, navy section heads. */
   --bg: #ffffff;
   --panel: #ffffff;
-  --panel-2: #f8f9fa;
-  --border: #000000;
-  --border-2: #000000;
-  --track: #e8e8e8;
+  --panel-2: #f4f6fa;
+  --border: #dfe2e8;
+  --border-2: #c9ced6;
+  --track: #eef0f4;
+  --navy: #093687;
+  --navy-ink: #ffffff;
 
-  --ink: #000000;
-  --ink-2: #333333;
-  --muted: #666666;
-  --muted-2: #666666;
-  --link-muted: #333333;
+  --ink: #1f2329;
+  --ink-2: #4a4f57;
+  --muted: #8a8f98;
+  --muted-2: #a4a9b1;
+  --link-muted: #4a4f57;
 
-  --buy: #00aa00;
-  --buy-ink: #00aa00;
-  --buy-bar: #00aa00;
-  --buy-bar-dim: #c8e6c8;
-  --sell: #cc0000;
-  --sell-ink: #cc0000;
-  --sell-bar: #cc0000;
-  --sell-bar-dim: #f0c8c8;
-  /* Simulated backtest trades on the chart. Kept off buy/sell green and red. */
-  --backtest: #1f5fd6;
+  /* Korean convention: rising, buy, long, and profit are red; falling, sell, short, and loss are blue. */
+  --buy: #c84a31;
+  --buy-ink: #c84a31;
+  --buy-bar: #c84a31;
+  --buy-bar-dim: #f5d9d2;
+  --sell: #1261c4;
+  --sell-ink: #1261c4;
+  --sell-bar: #1261c4;
+  --sell-bar-dim: #d2e1f5;
+  /* Simulated backtest trades on the chart. Kept off buy red and sell blue. */
+  --backtest: #7b3fd1;
 
   --late: #b8860b;
   --late-ink: #b8860b;
   --late-cell: #fff4d6;
-  --hold-cell: #f1f3f4;
-  --up-bar: #00aa00;
-  --down-bar: #cc0000;
-  --link: #0000aa;
+  --hold-cell: #f1f3f6;
+  --up-bar: #c84a31;
+  --down-bar: #1261c4;
+  --link: #4a4f57;
 
-  --badge-jev-bg: #000000;
+  --badge-jev-bg: #093687;
   --badge-jev-fg: #ffffff;
-  --badge-standin-bg: #000000;
+  --badge-standin-bg: #093687;
   --badge-standin-fg: #ffffff;
-  --live-dot: #00aa00;
-  --pnl-pos: #00aa00;
-  --pnl-neg: #cc0000;
-  --grid: #e5e5e5;
+  --live-dot: #1e9e62;
+  --pnl-pos: #c84a31;
+  --pnl-neg: #1261c4;
+  --grid: #f1f2f5;
+  --surface-hover: #f7f8fa;
 
-  --font-sans: var(--font-plex), "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-mono: var(--font-plex), "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Pretendard for Korean and numbers alike; tabular-nums keeps columns aligned. */
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  --font-mono: var(--font-sans);
 
-  --page-bg: #ffffff;
+  --page-bg: #f4f5f7;
   --card-radius: 0;
   --card-max: none;
 }
@@ -67,10 +73,11 @@ html {
 body {
   background: var(--page-bg);
   color: var(--ink);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 14px;
-  line-height: 1.4;
-  letter-spacing: -0.02em;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  word-break: keep-all;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

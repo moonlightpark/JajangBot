@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { Ohlc } from "../src/chart";
 import { resolveEmaLen, resolveModel, resolveStrategyExit } from "../src/config";
 import { StrategyModel, type TradeState } from "../src/model";
-import { emaSeries, MAGINGA, magingaChannel, magingaDecision, magingaLines, SCRIPT_RULES, withLiveBar, type StrategyRules } from "../src/strategy";
+import { emaSeries, MAGINGA, magingaChannel, magingaDecision, magingaLines, SCRIPT_RULES, trackEntries, withLiveBar, type StrategyRules } from "../src/strategy";
 
 const M = 60_000;
 const Q = 15 * M;
@@ -174,4 +174,45 @@ test("STRATEGY_* settings parse and reject bad values", () => {
   expect(resolveEmaLen(undefined)).toBe(125);
   expect(resolveEmaLen("200")).toBe(200);
   expect(() => resolveEmaLen("1.5")).toThrow();
+});
+
+test("trackEntries counts a growing position as one more entry, and flat clears it", () => {
+  const one = trackEntries(null, "short", 1, 10)!;
+  expect(one).toEqual({ side: "short", count: 1, lastTs: 10, size: 1 });
+  expect(trackEntries(one, "short", 1, 20)).toBe(one); // same size: no new entry
+  expect(trackEntries(one, "short", 2, 30)).toEqual({ side: "short", count: 2, lastTs: 30, size: 2 });
+  expect(trackEntries(one, "long", 1, 40)).toEqual({ side: "long", count: 1, lastTs: 40, size: 1 }); // flipped
+  expect(trackEntries(one, "flat", 0, 50)).toBeNull();
+});
+
+/** A held position of `size` at `mid`, entry at 100. */
+const held = (mid: number, side: "long" | "short", size: number): TradeState =>
+  ({ ...state(mid, side), position: { side, leverage: null, entry: 100, size } } as unknown as TradeState);
+
+test("StrategyModel adds up to twice on the same side, each 50 bars after the last entry", async () => {
+  let now = NOW;
+  const m = new StrategyModel(() => flat(200, 100, Q), 15, () => now, variant({ maxAdds: 2, addGapBars: 50 }));
+  expect(await m.decide(state(102, "flat"))).toMatchObject({ intent: "open", bias: "short" }); // entry 1 signal
+  expect(await m.decide(held(102, "short", 1))).toMatchObject({ intent: "hold" }); // filled; entry 2 waits 0/50
+  now = NOW + 49 * Q;
+  expect(await m.decide(held(102, "short", 1))).toMatchObject({ intent: "hold" }); // 49 bars
+  now = NOW + 50 * Q;
+  expect(await m.decide(held(100, "short", 1))).toMatchObject({ intent: "hold" }); // 50 bars, but no signal
+  expect(await m.decide(held(102, "short", 1))).toMatchObject({ intent: "open", bias: "short" }); // entry 2
+  expect(await m.decide(held(102, "short", 2))).toMatchObject({ intent: "hold" }); // filled; entry 3 waits
+  now = NOW + 99 * Q;
+  expect(await m.decide(held(102, "short", 2))).toMatchObject({ intent: "hold" }); // 49 bars since entry 2
+  now = NOW + 100 * Q;
+  expect(await m.decide(held(102, "short", 2))).toMatchObject({ intent: "open", bias: "short" }); // entry 3
+  expect(await m.decide(held(102, "short", 3))).toMatchObject({ intent: "hold" });
+  now = NOW + 200 * Q;
+  expect(await m.decide(held(102, "short", 3))).toMatchObject({ intent: "hold" }); // 3 entries is the most
+  expect(await m.decide(held(97, "short", 3))).toMatchObject({ intent: "close", bias: "short" }); // exit as before
+  expect(await m.decide(state(102, "flat"))).toMatchObject({ intent: "open", bias: "short" }); // flat: a fresh first entry
+});
+
+test("StrategyModel without STRATEGY_MAX_ADDS never adds, as in the script", async () => {
+  const m = new StrategyModel(() => flat(200, 100, Q), 15, () => NOW + 500 * Q, SCRIPT);
+  expect(await m.decide(held(102, "short", 1))).toMatchObject({ intent: "hold" });
+  expect(await m.decide(held(97, "long", 1))).toMatchObject({ intent: "hold" });
 });

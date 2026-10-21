@@ -126,14 +126,47 @@ export interface StrategyRules {
   exit: "opposite" | "mid";
   /** true: read the last closed 15m bar, as TradingView does by default. false: the forming bar every tick. */
   onBarClose: boolean;
+  /** Extra entries (물타기) on the same side while a position is open. 0: none, as in the script. */
+  maxAdds: number;
+  /** Bars (of the strategy timeframe) after the last entry before the next add may go in. */
+  addGapBars: number;
 }
 
-export const SCRIPT_RULES: StrategyRules = { stopPct: null, exit: "opposite", onBarClose: false };
+export const SCRIPT_RULES: StrategyRules = { stopPct: null, exit: "opposite", onBarClose: false, maxAdds: 0, addGapBars: 50 };
+
+/** Entries into the open position: how many filled, and when the last one did. */
+export interface EntryLog {
+  side: "long" | "short";
+  count: number;
+  lastTs: number;
+  /** Position size after the last fill, so a bigger size reads as a new entry. */
+  size: number;
+}
+
+/**
+ * Updates the log from the position each tick. Flat clears it. A position that grows on
+ * the same side is one more entry, stamped `now`. A position found already open (say after
+ * a restart) counts as the first entry from `now`, so no add goes in early.
+ */
+export function trackEntries(log: EntryLog | null, side: "long" | "short" | "flat", size: number, now: number): EntryLog | null {
+  if (side === "flat" || !(size > 0)) return null;
+  if (!log || log.side !== side) return { side, count: 1, lastTs: now, size };
+  if (size > log.size * (1 + 1e-9)) return { side, count: log.count + 1, lastTs: now, size };
+  return size < log.size ? { ...log, size } : log;
+}
+
+/** Whole strategy bars from `fromTs` to `now`, counted on bar boundaries. */
+export function barsBetween(fromTs: number, now: number, periodMs: number): number {
+  return Math.floor(now / periodMs) - Math.floor(fromTs / periodMs);
+}
 
 /**
  * The full call, live and in the backtest: stop loss first, then the script's lines,
- * then the channel-middle exit. `price` is the price this tick; `last` is the bar the
- * lines are read on (forming, or the last closed one with onBarClose).
+ * then the channel-middle exit, then adds. `price` is the price this tick; `last` is the
+ * bar the lines are read on (forming, or the last closed one with onBarClose). `entry` is
+ * the average entry. `entries` and `now` gate adds: with `maxAdds`, the side's own entry
+ * signal while that side is held opens again once `addGapBars` bars have passed since
+ * the last entry, up to 1 + maxAdds entries in all.
  */
 export function strategyCall(
   lines: MagingaLines,
@@ -142,6 +175,7 @@ export function strategyCall(
   price: number,
   entry: number | null,
   rules: StrategyRules,
+  scale?: { entries: EntryLog | null; now: number; periodMs: number },
 ): MagingaCall & { stopped?: boolean } {
   if (side !== "flat" && rules.stopPct && entry && entry > 0) {
     const hit = side === "long" ? price <= entry * (1 - rules.stopPct) : price >= entry * (1 + rules.stopPct);
@@ -152,6 +186,17 @@ export function strategyCall(
     const mid = (lines.emaHigh + lines.emaLow) / 2;
     if (side === "long" ? last.close >= mid : last.close <= mid) {
       return { intent: "close", bias: side, reason: `channel middle, take ${side} profit`, lines };
+    }
+  }
+  if (side !== "flat" && call.intent === "hold" && rules.maxAdds > 0 && scale) {
+    const again = side === "long" ? last.close < lines.longLine : last.high > lines.shortLine;
+    if (again) {
+      const n = scale.entries?.count ?? 1;
+      const next = n + 1;
+      if (n >= 1 + rules.maxAdds) return { ...call, reason: `${side} signal, ${n} entries already (max ${1 + rules.maxAdds})` };
+      const since = scale.entries ? barsBetween(scale.entries.lastTs, scale.now, scale.periodMs) : 0;
+      if (since < rules.addGapBars) return { ...call, reason: `${side} signal, entry ${next} waits ${since}/${rules.addGapBars} bars` };
+      return { intent: "open", bias: side, reason: `entry ${next} of ${1 + rules.maxAdds}, ${side} signal after ${since} bars`, lines };
     }
   }
   return call;

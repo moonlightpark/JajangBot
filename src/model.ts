@@ -3,7 +3,7 @@ import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { assertJevCredentials, config } from "./config";
 import { clampLeverage, leverageRungs, liveIntent, parseLeverage, quoteAction, type Bias, type Intent } from "./plan";
 import type { Ohlc } from "./chart";
-import { closedBars, MAGINGA, magingaLines, rearm, strategyCall, withLiveBar, type MagingaParams, type StrategyRules } from "./strategy";
+import { closedBars, MAGINGA, magingaLines, rearm, strategyCall, trackEntries, withLiveBar, type EntryLog, type MagingaParams, type StrategyRules } from "./strategy";
 import type { Action, Side, StrategyLevels } from "./types";
 
 /** What the model sees. Compact, relative, human-readable. */
@@ -414,7 +414,13 @@ export class MockModel implements Model {
 /** The strategy variant the bot runs, from .env. The backtest and the chart lines use the same. */
 export const liveStrategy: { params: MagingaParams; rules: StrategyRules } = {
   params: { ...MAGINGA, emaLen: config.strategyEmaLen },
-  rules: { stopPct: config.strategyStopPct, exit: config.strategyExit, onBarClose: config.strategyOnBarClose },
+  rules: {
+    stopPct: config.strategyStopPct,
+    exit: config.strategyExit,
+    onBarClose: config.strategyOnBarClose,
+    maxAdds: config.strategyMaxAdds,
+    addGapBars: config.strategyAddGapBars,
+  },
 };
 
 /** "EMA 200, stop 5%, exit mid, bar close" for logs. Only the parts that differ from the script. */
@@ -423,6 +429,7 @@ export function describeStrategy(s = liveStrategy): string {
   if (s.rules.stopPct) parts.push(`stop ${+(s.rules.stopPct * 100).toFixed(2)}%`);
   if (s.rules.exit !== "opposite") parts.push(`exit ${s.rules.exit}`);
   if (s.rules.onBarClose) parts.push("bar close");
+  if (s.rules.maxAdds) parts.push(`adds ${s.rules.maxAdds} every ${s.rules.addGapBars} bars`);
   return parts.join(", ");
 }
 
@@ -437,6 +444,8 @@ export class StrategyModel implements Model {
   private lastReason = "";
   /** The side a stop just closed. See `rearm`. */
   private blocked: "long" | "short" | null = null;
+  /** Entries into the open position, read off the position each tick. Gates adds. */
+  private entries: EntryLog | null = null;
 
   constructor(
     /** 15m candles, oldest first. */
@@ -450,11 +459,13 @@ export class StrategyModel implements Model {
     const t0 = performance.now();
     const { params: p, rules } = this.strategy;
     const side = state.position.side;
+    const now = this.now();
+    this.entries = trackEntries(this.entries, side, state.position.size, now);
     const bars = rules.onBarClose ? closedBars(this.bars(), this.now(), p.periodMs) : withLiveBar(this.bars(), state.mid, this.now(), p.periodMs);
     const lines = magingaLines(bars, p);
     const last = bars.at(-1);
     let call = lines && last
-      ? strategyCall(lines, last, side, state.mid, state.position.entry, rules)
+      ? strategyCall(lines, last, side, state.mid, state.position.entry, rules, { entries: this.entries, now, periodMs: p.periodMs })
       : { intent: "hold" as Intent, bias: "long" as Bias, reason: `warming up (${bars.length}/${p.emaLen} bars)`, lines: null };
     if ("stopped" in call && call.stopped && side !== "flat") this.blocked = side;
     ({ call, blocked: this.blocked } = rearm(this.blocked, side === "flat", call));

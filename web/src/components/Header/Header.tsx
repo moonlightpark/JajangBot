@@ -2,7 +2,6 @@
 
 import { fmtSignedUsd, fmtUsd } from "@/lib/format";
 import type { TradingMode } from "@/lib/mode";
-import Logo from "@/components/Logo/Logo";
 import { Bone } from "@/components/Skeleton/Skeleton";
 import styles from "./Header.module.css";
 
@@ -13,9 +12,9 @@ export interface HeaderProps {
   realized: number | null;
   /** Dry run: closed backtest PnL already inside `balance`. Null hides it. */
   backtest?: number | null;
-  /** From the bot's .env: Live, Testnet, Demo, or Dry run. Null until meta arrives. */
+  /** From the bot's .env: 실거래, 테스트넷, 데모, or 모의거래. Null until meta arrives. */
   mode: TradingMode | null;
-  /** Who makes the call: Jev, mock model, or TradingView strategy. */
+  /** Who makes the call: Jev, 모의 모델, or TradingView 전략. */
   decider: string | null;
 }
 
@@ -41,38 +40,14 @@ function Score({
   );
 }
 
-function GitHubMark() {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
-      <path
-        fill="currentColor"
-        d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"
-      />
-    </svg>
-  );
-}
-
 export default function Header({ connection, balance, unrealized, realized, backtest = null, mode, decider }: HeaderProps) {
   const live = connection === "live";
-  const label = !live ? "Offline" : mode ? mode.label : "Connecting";
+  const label = !live ? "연결 끊김" : mode ? mode.label : "연결 중";
 
   return (
     <div className={styles.header}>
       <span className={styles.brandLockup}>
-        <Logo size={20} />
-        <h1 className={styles.brand}>ChoRong Jev Trade</h1>
-        <p className={styles.tagline}>Live Jev trading bot</p>
-        <span className={styles.links}>
-          <a
-            className={styles.link}
-            href="https://github.com/aowang-ai/jev-trade"
-            target="_blank"
-            rel="noreferrer"
-            aria-label="jev-trade on GitHub"
-          >
-            <GitHubMark />
-          </a>
-        </span>
+        <p className={styles.tagline}>실시간 트레이딩 봇</p>
       </span>
       <span
         className={styles.status}
@@ -83,19 +58,19 @@ export default function Header({ connection, balance, unrealized, realized, back
         <span className={styles.dot} aria-hidden="true" />
         <span>{label}</span>
         {live && mode ? <span className={styles.statusDetail}>{mode.detail}</span> : null}
-        {live && decider ? <span className={styles.decider} data-jev={decider === "Jev" ? "true" : "false"}>by {decider}</span> : null}
+        {live && decider ? <span className={styles.decider} data-jev={decider === "Jev" ? "true" : "false"}>{decider} 판단</span> : null}
       </span>
       <span className={styles.scores}>
-        <Score label="balance" value={balance} signed={false} />
+        <Score label="잔고" value={balance} signed={false} />
         {backtest != null ? (
           <Score
-            label="backtest"
+            label="백테스트"
             value={backtest}
-            title="Closed trades from bun run backtest (strategy rules on past candles), simulated. Included in balance. Dry run only."
+            title="bun run backtest(과거 캔들에 전략 규칙 적용)로 청산된 가상 거래 손익. 잔고에 포함. 모의거래에서만 표시."
           />
         ) : null}
-        <Score label="unrealized" value={unrealized} />
-        <Score label="realized" value={realized} />
+        <Score label="평가손익" value={unrealized} />
+        <Score label="실현손익" value={realized} />
       </span>
     </div>
   );

@@ -26,12 +26,12 @@
 }
 
 .card:hover {
-  background: var(--surface-hover, #f1f3f4);
+  background: var(--surface-hover);
 }
 
 .active {
   background: var(--panel-2);
-  box-shadow: inset 0 3px 0 var(--ink);
+  box-shadow: inset 0 -2px 0 var(--navy);
 }
 
 .top {
@@ -54,7 +54,7 @@
   font-weight: 700;
   font-size: 13px;
   line-height: 1;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.02em;
   color: var(--ink);
 }
 
@@ -89,7 +89,7 @@
 
 .call {
   color: var(--muted);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 @media (max-width: 899.98px) {

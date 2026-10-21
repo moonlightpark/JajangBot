@@ -39,7 +39,7 @@ type Props = {
   coin: string;
   backtestLeverage: number;
   entry: EntryLine | null;
-  /** MODEL=strategy channel over time: dashed long (green) and short (red) lines. */
+  /** MODEL=strategy channel over time: dashed long (red) and short (blue) lines. */
   channel: ChannelLines | null;
   rangeKey: string;
   visibleBars: number;
@@ -49,13 +49,15 @@ type Props = {
   formatPrice: (n: number) => string;
 };
 
-const UP = "#000000";
-const DOWN = "#ffffff";
-const BUY = "#00aa00";
-const SELL = "#cc0000";
-const BACKTEST = "#1f5fd6";
-const BT_WIN = "#0a7a3a";
-const BT_LOSS = "#c2410c";
+// Korean convention: rising, buy, and long are red; falling, sell, and short are blue.
+const UP = "#c84a31";
+const DOWN = "#1261c4";
+const BUY = "#c84a31";
+const SELL = "#1261c4";
+// Backtest marks stay purple so they never pass for real fills.
+const BACKTEST = "#7b3fd1";
+const BT_WIN = "#e0533f";
+const BT_LOSS = "#3d7ee0";
 
 function asTime(sec: number): UTCTimestamp {
   return sec as UTCTimestamp;
@@ -148,17 +150,17 @@ export default function CandlePane({
       height: Math.max(1, el.clientHeight),
       layout: {
         background: { type: ColorType.Solid, color: "#ffffff" },
-        textColor: "#666666",
-        fontFamily: "IBM Plex Mono, ui-monospace, monospace",
+        textColor: "#8a8f98",
+        fontFamily: "Pretendard Variable, Pretendard, -apple-system, Apple SD Gothic Neo, Malgun Gothic, sans-serif",
       },
       grid: {
-        vertLines: { color: "#e5e5e5" },
-        horzLines: { color: "#e5e5e5" },
+        vertLines: { color: "#f1f2f5" },
+        horzLines: { color: "#f1f2f5" },
       },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#000000", scaleMargins: { top: 0.08, bottom: 0.08 } },
+      rightPriceScale: { borderColor: "#dfe2e8", scaleMargins: { top: 0.08, bottom: 0.08 } },
       timeScale: {
-        borderColor: "#000000",
+        borderColor: "#dfe2e8",
         timeVisible: true,
         secondsVisible,
         shiftVisibleRangeOnNewBar: true,
@@ -173,9 +175,9 @@ export default function CandlePane({
       upColor: UP,
       downColor: DOWN,
       borderUpColor: UP,
-      borderDownColor: UP,
+      borderDownColor: DOWN,
       wickUpColor: UP,
-      wickDownColor: UP,
+      wickDownColor: DOWN,
     });
     // Line series join the autoscale, so the channel stays on screen like the candles.
     const line = (color: string, title: string) =>
@@ -188,8 +190,8 @@ export default function CandlePane({
         crosshairMarkerVisible: false,
         title,
       });
-    longRef.current = line(BUY, "long");
-    shortRef.current = line(SELL, "short");
+    longRef.current = line(BUY, "롱");
+    shortRef.current = line(SELL, "숏");
     const markers = createSeriesMarkers(series, []);
     // Hover card for backtest trades: shows when the crosshair sits on a bar that has a BT mark.
     chart.subscribeCrosshairMove((param) => {
@@ -285,7 +287,7 @@ export default function CandlePane({
       lineWidth: 1 as const,
       lineStyle: LineStyle.Solid,
       axisLabelVisible: true,
-      title: "entry",
+      title: "진입가",
     };
     if (entryLineRef.current) {
       entryLineRef.current.applyOptions(next);
@@ -316,10 +318,10 @@ export default function CandlePane({
           {hovered.map((m) => {
             const d = backtestDetail(m.trade, coin, backtestLeverage, (ms) => zonedDateTime(ms, offsetH));
             return (
-              <div key={`${m.kind}|${m.trade.entryTs}`} className={styles.btTrade}>
+              <div key={`${m.kind}|${m.trade.entryTs}|${m.text}`} className={styles.btTrade}>
                 <div className={styles.btHead}>
                   <span className={d.side === "long" ? styles.btLong : styles.btShort}>{d.title}</span>
-                  <span className={styles.btKind}>{m.kind === "entry" ? "entry" : "exit"}</span>
+                  <span className={styles.btKind}>{m.kind === "entry" ? "진입" : "청산"}</span>
                 </div>
                 {d.rows.map((r) => (
                   <div key={r.label} className={styles.btRow}>
@@ -330,7 +332,7 @@ export default function CandlePane({
               </div>
             );
           })}
-          <div className={styles.btNote}>simulated by the strategy backtest, not a real fill</div>
+          <div className={styles.btNote}>전략 백테스트의 가상 거래이며 실제 체결이 아닙니다</div>
         </div>
       ) : null}
     </>

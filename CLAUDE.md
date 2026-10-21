@@ -56,7 +56,7 @@ The demo is a live Jev trading bot on Bybit (USDT linear perps). Every design or
 
 Non-negotiables: Jev makes the buy/sell call (not code), from the price feed; real trades from a real Bybit sub-account; a Jev decision every tick, not every N ticks. The demo is the live dashboard. No middle dots, em dashes or en dashes in any rendered text. No blinking or pulsing indicators.
 
-Bybit is the only venue (`src/bybit-*.ts`). Hyperliquid support was removed on 2026-10-04. The Trader talks to the exchange through the `VenueMarket` interface in `src/venue.ts`. `BYBIT_ENV` defaults to `demo`; only `mainnet` moves real funds, and the dashboard header must say so (Live / Testnet / Demo / Dry run from `web/src/lib/mode.ts`).
+Bybit is the only venue (`src/bybit-*.ts`). Hyperliquid support was removed on 2026-10-04. The Trader talks to the exchange through the `VenueMarket` interface in `src/venue.ts`. `BYBIT_ENV` defaults to `demo`; only `mainnet` moves real funds, and the dashboard header must say so (실거래 / 테스트넷 / 데모 / 모의거래, i.e. Live / Testnet / Demo / Dry run, from `web/src/lib/mode.ts`). The dashboard UI is Korean, Korean exchange style: rising, buy, long, and profit are red; falling, sell, short, and loss are blue.
 
 `MODEL` picks who decides: `jev` (the demo's claim), `mock` (stand-in), or `strategy` (the user's TradingView channel rules in `src/strategy.ts`). Only `MODEL=jev` satisfies the core message. With `mock` or `strategy`, code makes the call, so the dashboard header must say who decides (`deciderLabel` in `web/src/lib/mode.ts`). Never let the page imply Jev decided when it did not.
 

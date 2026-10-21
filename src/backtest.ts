@@ -56,6 +56,9 @@ export interface BacktestOpts {
   exit?: "opposite" | "mid";
   /** true: read the last closed 15m bar each tick, as the live bot does with STRATEGY_ON_BAR_CLOSE. */
   onBarClose?: boolean;
+  /** Adds (물타기) after the first entry, same side, each `addGapBars` 15m bars after the last. 0: none. */
+  maxAdds?: number;
+  addGapBars?: number;
 }
 
 
@@ -112,6 +115,9 @@ export function orderSize(px: number, o: Pick<BacktestOpts, "quoteUsd" | "qtySte
  * the real highs and lows, as on the live kline stream), reads the price at the close,
  * and asks the same `magingaRule` the live StrategyModel uses.
  *
+ * With maxAdds, the side's own entry signal while it is held adds to the position (물타기)
+ * once addGapBars 15m bars have passed since the last entry; the entry price averages in.
+ *
  * Orders follow the live bot: an entry rests post-only at the tick price and fills
  * only if the next minute trades through it (maker fee); a new tick requotes it, a
  * hold cancels it. An exit crosses at the tick price (taker fee). Spread, slippage,
@@ -121,9 +127,19 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
   const eHigh = new EmaStep(p.emaLen), eLow = new EmaStep(p.emaLen);
   let forming: Ohlc = { ts: -1, open: 0, high: 0, low: 0, close: 0 };
   let lastClosed: Ohlc | null = null;
-  const rules: StrategyRules = { stopPct: o.stopPct ?? null, exit: o.exit ?? "opposite", onBarClose: o.onBarClose ?? false };
+  const rules: StrategyRules = {
+    stopPct: o.stopPct ?? null,
+    exit: o.exit ?? "opposite",
+    onBarClose: o.onBarClose ?? false,
+    maxAdds: o.maxAdds ?? 0,
+    addGapBars: o.addGapBars ?? 50,
+  };
   let pending: Pending | null = null;
-  let pos: { side: "long" | "short"; entryTs: number; entryPx: number; size: number; fee: number; worst: number } | null = null;
+  type Entry = { ts: number; px: number; size: number };
+  /** entryPx is the average over `entries`. */
+  type Pos = { side: "long" | "short"; entryTs: number; entryPx: number; size: number; fee: number; worst: number; entries: Entry[] };
+  let pos: Pos | null = null;
+  const entriesOf = (p: Pos) => (p.entries.length > 1 ? { entries: p.entries } : {});
   const trades: BacktestTrade[] = [];
   let realized = 0, fees = 0, peak = 0, maxDd = 0, ticks = 0, missed = 0, stops = 0;
   /** The side a stop just closed: no new entry that way until its signal clears. */
@@ -136,7 +152,7 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     realized += gross - fee;
     fees += fee;
     trades.push({
-      side: pos!.side, entryTs: pos!.entryTs, entryPx: pos!.entryPx, exitTs: ts, exitPx: px, size: pos!.size,
+      side: pos!.side, entryTs: pos!.entryTs, entryPx: pos!.entryPx, ...entriesOf(pos!), exitTs: ts, exitPx: px, size: pos!.size,
       pnlUsd: gross - pos!.fee - fee, feesUsd: pos!.fee + fee, maxAdversePct: pos!.worst,
     });
     pos = null;
@@ -150,7 +166,15 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
         const fee: number = pending.price * pending.size * o.makerFee;
         realized -= fee;
         fees += fee;
-        pos = { side: pending.side, entryTs: b.ts, entryPx: pending.price, size: pending.size, fee, worst: 0 };
+        const e: Entry = { ts: b.ts, px: pending.price, size: pending.size };
+        const held = pos as Pos | null;
+        if (held && held.side === pending.side) {
+          // An add: the position averages in.
+          const size = held.size + e.size;
+          pos = { ...held, entryPx: (held.entryPx * held.size + e.px * e.size) / size, size, fee: held.fee + fee, entries: [...held.entries, e] };
+        } else {
+          pos = { side: pending.side, entryTs: b.ts, entryPx: e.px, size: e.size, fee, worst: 0, entries: [e] };
+        }
         pending = null;
       }
     }
@@ -192,7 +216,8 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     let bias: "long" | "short" = "long";
     if (last && Number.isFinite(emaHigh) && Number.isFinite(emaLow)) {
       const lines: MagingaLines = { emaHigh, emaLow, shortLine: emaHigh * (1 + p.shortBand), longLine: emaLow * (1 - p.longBand) };
-      let call = strategyCall(lines, last, side, b.close, pos ? pos.entryPx : null, rules);
+      const entries = pos ? { side: pos.side, count: pos.entries.length, lastTs: pos.entries.at(-1)!.ts, size: pos.size } : null;
+      let call = strategyCall(lines, last, side, b.close, pos ? pos.entryPx : null, rules, { entries, now: tickTs, periodMs: p.periodMs });
       if (call.stopped && pos) {
         blocked = pos.side;
         stops++;
@@ -222,7 +247,7 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     const gross = (pos.side === "long" ? lastPx - pos.entryPx : pos.entryPx - lastPx) * pos.size;
     realized += gross;
     trades.push({
-      side: pos.side, entryTs: pos.entryTs, entryPx: pos.entryPx, exitTs: null, exitPx: lastPx, size: pos.size,
+      side: pos.side, entryTs: pos.entryTs, entryPx: pos.entryPx, ...entriesOf(pos), exitTs: null, exitPx: lastPx, size: pos.size,
       pnlUsd: gross - pos.fee, feesUsd: pos.fee, maxAdversePct: pos.worst,
     });
   }

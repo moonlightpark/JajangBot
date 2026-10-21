@@ -3,7 +3,8 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 14px 20px;
+  padding: 12px 20px;
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
 
@@ -14,58 +15,26 @@
   min-width: 0;
 }
 
-.brand {
-  display: inline;
-  font-family: var(--font-mono), "IBM Plex Mono", monospace;
-  font-weight: 700;
-  font-size: 14px;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  color: var(--ink);
-  white-space: nowrap;
-}
-
 .tagline {
   margin: 0;
-  font-family: var(--font-mono), "IBM Plex Mono", monospace;
-  font-weight: 500;
-  font-size: 12px;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 15px;
   line-height: 1;
-  letter-spacing: 0.02em;
-  color: var(--muted);
+  letter-spacing: -0.02em;
+  color: var(--navy);
   white-space: nowrap;
-}
-
-.links {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: 2px;
-}
-
-.link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  color: var(--ink);
-  opacity: 0.55;
-}
-
-.link:hover {
-  opacity: 1;
 }
 
 .status {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-family: var(--font-mono), "IBM Plex Mono", monospace;
+  font-family: var(--font-sans);
   font-weight: 700;
   font-size: 12px;
   line-height: 1;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   color: var(--ink);
   white-space: nowrap;
 }
@@ -90,9 +59,10 @@
 /* Who decides. Anything other than Jev is called out so the page never implies Jev made the call. */
 .decider {
   font-weight: 700;
-  padding: 2px 6px;
-  border: 1px solid var(--ink);
+  padding: 3px 7px;
+  border: 1px solid var(--navy);
   border-radius: 3px;
+  color: var(--navy);
 }
 
 .decider[data-jev="true"] {
@@ -123,9 +93,9 @@
 }
 
 .scoreKey {
-  font-weight: 700;
+  font-weight: 500;
   font-size: 12px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0;
   color: var(--muted);
 }
 
@@ -149,12 +119,8 @@
     gap: 8px;
   }
 
-  .brand {
-    font-size: 13px;
-  }
-
   .tagline {
-    display: none;
+    font-size: 13px;
   }
 
   .status {
@@ -184,19 +150,13 @@
   }
 
   .scoreKey {
-    font-size: 10px;
-    letter-spacing: 0.08em;
+    font-size: 11px;
+    letter-spacing: 0;
   }
 
   .scoreVal {
     font-size: 15px;
     line-height: 1;
-  }
-}
-
-@media (max-width: 359px) {
-  .brand {
-    font-size: 12px;
   }
 }
 

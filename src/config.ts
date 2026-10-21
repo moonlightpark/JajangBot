@@ -69,6 +69,14 @@ export function resolveEmaLen(raw?: string): number {
   return n;
 }
 
+/** A whole number from `min` to `max`; empty is `fallback`. Names the variable when it is off. */
+export function resolveWhole(name: string, raw: string | undefined, fallback: number, min: number, max: number): number {
+  if (!raw?.trim()) return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < min || n > max) throw new Error(`${name} must be a whole number from ${min} to ${max}`);
+  return n;
+}
+
 export function resolveBybitEnv(raw?: string): BybitEnv {
   const v = (raw ?? "").trim().toLowerCase();
   if (!v || v === "demo") return "demo";
@@ -109,6 +117,10 @@ export const config = {
   strategyStopPct: cap("STRATEGY_STOP_PCT") == null ? null : cap("STRATEGY_STOP_PCT")! / 100,
   strategyExit: resolveStrategyExit(env("STRATEGY_EXIT")),
   strategyOnBarClose: env("STRATEGY_ON_BAR_CLOSE") === "true",
+  /** Adds (물타기) after the first entry, same side. 0: none, as in the script. */
+  strategyMaxAdds: resolveWhole("STRATEGY_MAX_ADDS", env("STRATEGY_MAX_ADDS"), 0, 0, 10),
+  /** 15m bars after an entry before the next add may go in. */
+  strategyAddGapBars: resolveWhole("STRATEGY_ADD_GAP_BARS", env("STRATEGY_ADD_GAP_BARS"), 50, 1, 10_000),
   /** Days of 15m candles loaded at start, so the chart reaches back that far. At least 1000 bars either way. */
   chartDays: Math.max(1, Number(env("CHART_DAYS", "92")) || 92),
   /** typesafe = official TypeSafe API. gateway = Vercel AI Gateway. */

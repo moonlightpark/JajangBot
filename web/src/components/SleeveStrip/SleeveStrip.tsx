@@ -1,7 +1,7 @@
 "use client";
 
 import type { BlockEvent, SleeveMeta } from "@/lib/types";
-import { displayCoin, fmtCoin, fmtPrice, fmtSignedUsd } from "@/lib/format";
+import { displayCoin, fmtCoin, fmtPrice, fmtSignedUsd, LATE_KO, SIDE_KO } from "@/lib/format";
 import TokenIcon from "@/components/TokenIcon/TokenIcon";
 import { Bone } from "@/components/Skeleton/Skeleton";
 import styles from "./SleeveStrip.module.css";
@@ -24,7 +24,7 @@ export default function SleeveStrip({
   if (!sleeves.length) {
     if (!waiting) return null;
     return (
-      <div className={styles.strip} aria-busy="true" aria-label="Loading markets" style={{ pointerEvents: "none" }}>
+      <div className={styles.strip} aria-busy="true" aria-label="종목 불러오는 중" style={{ pointerEvents: "none" }}>
         {Array.from({ length: 5 }, (_, i) => (
           <div key={i} className={styles.card}>
             <span className={styles.top}>
@@ -48,13 +48,13 @@ export default function SleeveStrip({
         const pnl = openPnl(latest);
         const active = sleeve.coin === selected;
         const pnlColor = open ? (pnl >= 0 ? "var(--pnl-pos)" : "var(--pnl-neg)") : undefined;
-        const side = (pos?.side ?? "flat").toUpperCase();
+        const side = SIDE_KO[pos?.side ?? "flat"] ?? "";
         const sideColor =
           pos?.side === "long" ? "var(--buy-ink)" : pos?.side === "short" ? "var(--sell-ink)" : undefined;
         const lev = pos?.leverage != null ? `${pos.leverage}x` : "";
         const size =
           pos && pos.side !== "flat" ? fmtCoin(pos.size, sleeve.coin, 4) : "";
-        const call = lastCallByCoin[sleeve.coin] || (latest?.decision?.late ? "LATE" : "");
+        const call = lastCallByCoin[sleeve.coin] || (latest?.decision?.late ? LATE_KO : "");
         return (
           <button
             key={sleeve.coin}
@@ -62,7 +62,7 @@ export default function SleeveStrip({
             className={`${styles.card} ${active ? styles.active : ""}`}
             onClick={() => onSelect(sleeve.coin)}
             aria-pressed={active}
-            aria-label={`${displayCoin(sleeve.coin)} ${side}${open ? ` unrealized ${fmtSignedUsd(pnl, 2)}` : ""}`}
+            aria-label={`${displayCoin(sleeve.coin)} ${side}${open ? ` 평가손익 ${fmtSignedUsd(pnl, 2)}` : ""}`}
           >
             <span className={styles.top}>
               <span className={styles.name}>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BlockEvent, Meta } from "@/lib/types";
-import { fmtClock, fmtPrice, shortTx, txUrl } from "@/lib/format";
+import { fmtClock, fmtPrice, HOLD_KO, LATE_KO, shortTx, SIDE_KO, txUrl } from "@/lib/format";
 import { Bone } from "@/components/Skeleton/Skeleton";
 import styles from "./Feed.module.css";
 
@@ -36,13 +36,13 @@ const KIND_CLASS: Record<Kind, string> = {
 
 function wordOf(event: BlockEvent, kind: Kind): string {
   const d = event.decision;
-  if (kind === "late") return "LATE";
-  if (kind === "hold") return "HOLD";
-  if (d?.intent === "close") return "CLOSE";
-  if (d?.intent === "open") return "OPEN";
-  if (d?.action === "buy") return "BUY";
-  if (d?.action === "sell") return "SELL";
-  return "LATE";
+  if (kind === "late") return LATE_KO;
+  if (kind === "hold") return HOLD_KO;
+  if (d?.intent === "close") return "청산";
+  if (d?.intent === "open") return "진입";
+  if (d?.action === "buy") return SIDE_KO.buy!;
+  if (d?.action === "sell") return SIDE_KO.sell!;
+  return LATE_KO;
 }
 
 function isCallRow(event: BlockEvent): boolean {
@@ -81,10 +81,10 @@ export default function Feed({
 
   return (
     <section className={styles.feed}>
-      <div className={styles.railHead}>CALLS</div>
+      <div className={styles.railHead}>판단 기록</div>
       <div className={styles.list} ref={listRef}>
         {waiting && callRows.length === 0 ? (
-          <div aria-busy="true" aria-label="Loading calls">
+          <div aria-busy="true" aria-label="판단 기록 불러오는 중">
             {Array.from({ length: 8 }, (_, i) => (
               <div key={i} className={styles.row}>
                 <span className={`${styles.cell} ${styles.time}`}>
@@ -103,7 +103,7 @@ export default function Feed({
             ))}
           </div>
         ) : callRows.length === 0 ? (
-          <div className={styles.empty}>no calls yet</div>
+          <div className={styles.empty}>아직 판단이 없습니다</div>
         ) : (
           callRows.slice(-capacity).reverse().map((event, i) => {
             const kind = kindOf(event);
@@ -120,16 +120,16 @@ export default function Feed({
             if (fill && fill.size > 0) {
               detail = `${fmtSize(fill.size)} @ ${fmtPrice(fill.price)}`;
             } else if (decided && quote) {
-              const word = quote.taker ? "cross" : quote.side === "buy" ? "bid" : "ask";
+              const word = quote.taker ? "시장가" : quote.side === "buy" ? "매수호가" : "매도호가";
               const lev = quote.taker || decision?.leverage == null ? "" : ` ${decision.leverage}x`;
-              const bias = quote.taker || !decision?.bias ? "" : ` ${decision.bias}`;
-              detail = `${word} ${fmtSize(quote.size)} @ ${fmtPrice(quote.price)}${bias}${lev}${quote.reduceOnly ? " reduce" : ""}`;
+              const bias = quote.taker || !decision?.bias ? "" : ` ${SIDE_KO[decision.bias] ?? decision.bias}`;
+              detail = `${word} ${fmtSize(quote.size)} @ ${fmtPrice(quote.price)}${bias}${lev}${quote.reduceOnly ? " 감소전용" : ""}`;
               detailMuted = quote.status === "reverted";
             } else if (decided && kind === "hold") {
-              detail = event.position.side === "flat" ? "flat, no order" : "position held";
+              detail = event.position.side === "flat" ? "주문 없음" : "포지션 유지";
               detailMuted = true;
             } else if (decided && decision?.intent === "close" && event.position.side === "flat") {
-              detail = "already flat";
+              detail = "이미 포지션 없음";
               detailMuted = true;
             }
 
@@ -149,11 +149,11 @@ export default function Feed({
                 </span>
                 <span className={`${styles.cell} ${styles.tx}`}>
                   {fill && !fill.simulated && fill.txHash ? (
-                    <a href={txUrl(fill.txHash, meta?.explorerTx)} target="_blank" rel="noreferrer" title="the taker's transaction">
+                    <a href={txUrl(fill.txHash, meta?.explorerTx)} target="_blank" rel="noreferrer" title="테이커 거래">
                       {shortTx(fill.txHash)}
                     </a>
                   ) : quote && quote.status === "sim" ? (
-                    <span className={styles.muted}>sim</span>
+                    <span className={styles.muted}>가상</span>
                   ) : quote && quote.txHash ? (
                     <a
                       className={quote.status === "placed" ? undefined : styles.muted}
@@ -162,7 +162,7 @@ export default function Feed({
                       target="_blank"
                       rel="noreferrer"
                     >
-                      {quote.status === "reverted" ? "rev" : shortTx(quote.txHash)}
+                      {quote.status === "reverted" ? "실패" : shortTx(quote.txHash)}
                     </a>
                   ) : null}
                 </span>

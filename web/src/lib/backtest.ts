@@ -16,7 +16,7 @@ export type BacktestMark = {
 
 const money = (x: number) => `${x < 0 ? "-" : "+"}$${Math.abs(x).toFixed(2)}`;
 const pct = (x: number) => `${x < 0 ? "-" : "+"}${Math.abs(x).toFixed(1)}%`;
-const sideWord = (s: "long" | "short") => (s === "long" ? "Long" : "Short");
+const sideWord = (s: "long" | "short") => (s === "long" ? "롱" : "숏");
 
 /** Coin size without float noise: 0.0010000001 -> "0.001". */
 export function fmtSize(n: number): string {
@@ -29,18 +29,18 @@ export function roePct(t: BacktestTrade, leverage: number): number {
   return margin > 0 ? (t.pnlUsd / margin) * 100 : 0;
 }
 
-/** "1d 20h", "3h 15m", "45m" */
+/** "1일 20시간", "3시간 15분", "45분" */
 export function fmtHeld(ms: number): string {
   const m = Math.max(0, Math.round(ms / 60_000));
   const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
-  if (d) return `${d}d ${h}h`;
-  if (h) return `${h}h ${mm}m`;
-  return `${mm}m`;
+  if (d) return `${d}일 ${h}시간`;
+  if (h) return `${h}시간 ${mm}분`;
+  return `${mm}분`;
 }
 
 /**
  * Entry and exit marks for one coin's backtest trades, bucketed to the view's bar.
- * Entries say side and size, exits say PnL after fees.
+ * Entries say side and size (adds also their round, "2차"), exits say PnL after fees.
  * Marks whose bar is not on the chart are dropped (the 1m view only covers recent hours).
  */
 export function backtestMarks(trades: BacktestTrade[], bar: BarSize, candleTimes: ReadonlySet<number>): BacktestMark[] {
@@ -48,10 +48,19 @@ export function backtestMarks(trades: BacktestTrade[], bar: BarSize, candleTimes
   const at = (ts: number) => asUtcSec(Math.floor(ts / interval) * interval);
   const out: BacktestMark[] = [];
   for (const t of trades) {
-    const entry = at(t.entryTs);
-    if (candleTimes.has(entry)) {
-      const open = t.exitTs == null ? " open" : "";
-      out.push({ time: entry, kind: "entry", side: t.side, text: `BT ${sideWord(t.side)} ${fmtSize(t.size)}${open}`, trade: t });
+    const open = t.exitTs == null ? " 보유중" : "";
+    if (t.entries && t.entries.length > 1) {
+      t.entries.forEach((e, i) => {
+        const time = at(e.ts);
+        if (!candleTimes.has(time)) return;
+        const round = i === 0 ? "" : ` ${i + 1}차`;
+        out.push({ time, kind: "entry", side: t.side, text: `BT ${sideWord(t.side)}${round} ${fmtSize(e.size)}${open}`, trade: t });
+      });
+    } else {
+      const entry = at(t.entryTs);
+      if (candleTimes.has(entry)) {
+        out.push({ time: entry, kind: "entry", side: t.side, text: `BT ${sideWord(t.side)} ${fmtSize(t.size)}${open}`, trade: t });
+      }
     }
     if (t.exitTs == null) continue;
     const exit = at(t.exitTs);
@@ -73,22 +82,25 @@ export function backtestDetail(
   fmtTime: (ms: number | null) => string = fmtDateTime,
 ): { title: string; side: "long" | "short"; rows: DetailRow[] } {
   const lev = Math.max(1, leverage);
-  const rows: DetailRow[] = [
-    { label: "Size", value: `${fmtSize(t.size)} ${coin} ${lev}x`, tone: t.side },
-    { label: "Entry", value: `${fmtTime(t.entryTs)}  ${fmtPrice(t.entryPx)}` },
-  ];
-  const tone = t.pnlUsd > 0 ? "win" : t.pnlUsd < 0 ? "loss" : undefined;
-  const pnl = `${money(t.pnlUsd)}  ROE ${pct(roePct(t, lev))}`;
-  if (t.exitTs == null) {
-    rows.push({ label: "Exit", value: `open, marked at ${fmtPrice(t.exitPx)}` });
-    rows.push({ label: "PnL", value: `${pnl} (unrealized)`, tone });
+  const rows: DetailRow[] = [{ label: "수량", value: `${fmtSize(t.size)} ${coin} ${lev}x`, tone: t.side }];
+  if (t.entries && t.entries.length > 1) {
+    t.entries.forEach((e, i) => rows.push({ label: `${i + 1}차 진입`, value: `${fmtTime(e.ts)}  ${fmtPrice(e.px)}` }));
+    rows.push({ label: "평균가", value: fmtPrice(t.entryPx) });
   } else {
-    rows.push({ label: "Exit", value: `${fmtTime(t.exitTs)}  ${fmtPrice(t.exitPx)}` });
-    rows.push({ label: "Held", value: fmtHeld(t.exitTs - t.entryTs) });
-    rows.push({ label: "PnL", value: pnl, tone });
+    rows.push({ label: "진입", value: `${fmtTime(t.entryTs)}  ${fmtPrice(t.entryPx)}` });
   }
-  rows.push({ label: "Fees", value: `$${t.feesUsd.toFixed(2)} (in PnL)` });
-  rows.push({ label: "Max adverse", value: `${t.maxAdversePct.toFixed(2)}%` });
+  const tone = t.pnlUsd > 0 ? "win" : t.pnlUsd < 0 ? "loss" : undefined;
+  const pnl = `${money(t.pnlUsd)}  수익률 ${pct(roePct(t, lev))}`;
+  if (t.exitTs == null) {
+    rows.push({ label: "청산", value: `미청산, 현재가 ${fmtPrice(t.exitPx)}` });
+    rows.push({ label: "손익", value: `${pnl} (평가)`, tone });
+  } else {
+    rows.push({ label: "청산", value: `${fmtTime(t.exitTs)}  ${fmtPrice(t.exitPx)}` });
+    rows.push({ label: "보유", value: fmtHeld(t.exitTs - t.entryTs) });
+    rows.push({ label: "손익", value: pnl, tone });
+  }
+  rows.push({ label: "수수료", value: `$${t.feesUsd.toFixed(2)} (손익에 포함)` });
+  rows.push({ label: "최대 역행", value: `${t.maxAdversePct.toFixed(2)}%` });
   return { title: `BT ${sideWord(t.side)} ${coin}`, side: t.side, rows };
 }
 

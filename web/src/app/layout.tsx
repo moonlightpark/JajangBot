@@ -1,13 +1,9 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
-const plex = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-plex",
-  display: "swap",
-});
+/** Pretendard, the common Korean UI face. Dynamic subset: the browser loads only the glyphs on the page. */
+const PRETENDARD =
+  "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css";
 
 const site = "https://www.jev-trade.com";
 const title = "Jev Trade | Live Jev trading bot on crypto and other assets";
@@ -83,8 +79,10 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={plex.variable}>
+    <html lang="ko">
       <head>
+        <link rel="preconnect" href="https://cdn.jsdelivr.net" crossOrigin="anonymous" />
+        <link rel="stylesheet" href={PRETENDARD} crossOrigin="anonymous" />
         <link rel="describedby" href="https://www.jev-trade.com/llms.txt" />
       </head>
       <body>

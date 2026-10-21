@@ -38,7 +38,7 @@ if (config.model !== "strategy") console.log(`note: MODEL=${config.model}, but t
 if (config.tickMs !== MINUTE_MS) console.log(`note: TICK_MS=${config.tickMs}, but the backtest decides once per 1m candle.`);
 console.log(`backtest strategy ${liveStrategy.params.timeframe} channel (${describeStrategy()}), 1m ticks, ${day(start)} to ${day(end)}, quote $${config.quoteUsd}, fees maker ${makerFee * 100}% taker ${takerFee * 100}%`);
 
-const rows: string[] = ["coin,side,entry_time_utc,entry_px,exit_time_utc,exit_px,size,pnl_usd,fees_usd,max_adverse_pct,status"];
+const rows: string[] = ["coin,side,entry_time_utc,entry_px,exit_time_utc,exit_px,size,pnl_usd,fees_usd,max_adverse_pct,status,entries"];
 let total = 0, totalFees = 0, totalTrades = 0;
 const { report, runs, failed } = await backtestCoins(coins, start, end, (coin) => process.stdout.write(`${coin}: loading 1m candles... `));
 
@@ -49,14 +49,16 @@ for (const { coin, leverage, bars, result: r } of runs) {
   const open = r.trades.find((t) => t.exitTs == null);
   // Isolated margin at this leverage is gone after roughly 100/leverage percent against you.
   const liqRisk = r.trades.filter((t) => t.maxAdversePct >= 100 / leverage - 0.5).length;
+  const adds = r.trades.reduce((n, t) => n + Math.max(0, (t.entries?.length ?? 1) - 1), 0);
   console.log(
     `  ${leverage}x  trades ${done.length}  win ${done.length ? Math.round((wins / done.length) * 100) : 0}%  pnl ${usd(r.pnlUsd)}  fees ${usd(r.feesUsd)}  max drawdown ${usd(r.maxDrawdownUsd)}  missed entries ${r.missedEntries}` +
+    (adds ? `  adds ${adds}` : "") +
     (open ? `  open ${open.side} @ ${open.entryPx} (${usd(open.pnlUsd)})` : "") +
     (liqRisk ? `  liquidation risk (isolated) ${liqRisk}` : ""),
   );
   for (const t of r.trades) {
     rows.push([coin, t.side, time(t.entryTs), t.entryPx, t.exitTs == null ? "" : time(t.exitTs), t.exitPx, t.size,
-      t.pnlUsd.toFixed(4), t.feesUsd.toFixed(4), t.maxAdversePct.toFixed(2), t.exitTs == null ? "open" : "closed"].join(","));
+      t.pnlUsd.toFixed(4), t.feesUsd.toFixed(4), t.maxAdversePct.toFixed(2), t.exitTs == null ? "open" : "closed", t.entries?.length ?? 1].join(","));
   }
   total += r.pnlUsd;
   totalFees += r.feesUsd;

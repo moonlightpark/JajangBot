@@ -1,7 +1,7 @@
 "use client";
 
 import type { BlockEvent, Meta } from "@/lib/types";
-import { fmtCall, fmtPct } from "@/lib/format";
+import { fmtCall, fmtPct, LATE_KO } from "@/lib/format";
 import { Bone } from "@/components/Skeleton/Skeleton";
 import styles from "./DecisionPanel.module.css";
 
@@ -43,9 +43,9 @@ function BarRow({ label, labelColor, active, value, fill, pct }: BarRowProps) {
 export default function DecisionPanel({ latest, waiting = false }: DecisionPanelProps) {
   if (waiting && !latest) {
     return (
-      <div className={styles.panel} aria-busy="true" aria-label="Loading call">
+      <div className={styles.panel} aria-busy="true" aria-label="판단 불러오는 중">
         <section className={styles.section}>
-          <div className={styles.railHead}>CALL</div>
+          <div className={styles.railHead}>현재 판단</div>
           <div className={styles.body}>
             <div className={styles.headline}>
               <Bone w={72} h={22} />
@@ -54,7 +54,7 @@ export default function DecisionPanel({ latest, waiting = false }: DecisionPanel
               </span>
             </div>
             <div className={styles.bars}>
-              {["long", "short", "open", "close", "hold"].map((label) => (
+              {["롱", "숏", "진입", "청산", "관망"].map((label) => (
                 <div key={label} className={styles.row}>
                   <span className={styles.label} style={{ opacity: 0.38 }}>
                     {label}
@@ -85,7 +85,7 @@ export default function DecisionPanel({ latest, waiting = false }: DecisionPanel
   const decided = decision !== null && !late && (chosen !== null || held);
   const pctOf = (p: number | undefined) => (decided ? fmtPct(p ?? 0) : "-");
 
-  const headline = decided ? fmtCall(decision) || "LATE" : "LATE";
+  const headline = decided ? fmtCall(decision) || LATE_KO : LATE_KO;
   const headlineColor = held
     ? "var(--ink-2)"
     : chosen
@@ -97,7 +97,7 @@ export default function DecisionPanel({ latest, waiting = false }: DecisionPanel
   return (
     <div className={styles.panel}>
       <section className={styles.section}>
-        <div className={styles.railHead}>CALL</div>
+        <div className={styles.railHead}>현재 판단</div>
         <div className={styles.body}>
           <div className={styles.headline}>
             <span className={styles.headlineWord} style={{ color: headlineColor }}>
@@ -110,7 +110,7 @@ export default function DecisionPanel({ latest, waiting = false }: DecisionPanel
 
           <div className={styles.bars}>
             <BarRow
-              label="long"
+              label="롱"
               labelColor="var(--buy-ink)"
               active={!held && decision?.bias === "long"}
               value={probs.long ?? probs.buy}
@@ -118,7 +118,7 @@ export default function DecisionPanel({ latest, waiting = false }: DecisionPanel
               pct={pctOf(probs.long ?? probs.buy)}
             />
             <BarRow
-              label="short"
+              label="숏"
               labelColor="var(--sell-ink)"
               active={!held && decision?.bias === "short"}
               value={probs.short ?? probs.sell}
@@ -126,7 +126,7 @@ export default function DecisionPanel({ latest, waiting = false }: DecisionPanel
               pct={pctOf(probs.short ?? probs.sell)}
             />
             <BarRow
-              label="open"
+              label="진입"
               labelColor="var(--ink)"
               active={decision?.intent === "open"}
               value={probs.open ?? 0}
@@ -134,7 +134,7 @@ export default function DecisionPanel({ latest, waiting = false }: DecisionPanel
               pct={pctOf(probs.open)}
             />
             <BarRow
-              label="close"
+              label="청산"
               labelColor="var(--ink)"
               active={decision?.intent === "close"}
               value={probs.close ?? 0}
@@ -142,7 +142,7 @@ export default function DecisionPanel({ latest, waiting = false }: DecisionPanel
               pct={pctOf(probs.close)}
             />
             <BarRow
-              label="hold"
+              label="관망"
               labelColor="var(--ink)"
               active={held}
               value={probs.hold ?? 0}

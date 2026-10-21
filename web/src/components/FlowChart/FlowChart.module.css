@@ -38,8 +38,8 @@
 
 .legend {
   position: absolute;
-  right: 16px;
-  bottom: 22px;
+  right: 56px;
+  bottom: 42px;
   z-index: 2;
   display: flex;
   gap: 10px;
@@ -62,15 +62,14 @@
 .legDown::before {
   width: 8px;
   height: 8px;
-  border: 1px solid #000;
 }
 
 .legUp::before {
-  background: #000;
+  background: var(--up-bar);
 }
 
 .legDown::before {
-  background: #fff;
+  background: var(--down-bar);
 }
 
 .legBuy::before,
@@ -268,33 +267,33 @@
   height: 22px;
   min-width: 22px;
   padding: 0 7px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-2);
   border-right: 0;
   border-radius: 0;
   background: var(--bg);
-  color: var(--ink);
-  font: 700 11px var(--font-mono), monospace;
+  color: var(--ink-2);
+  font: 500 12px var(--font-sans);
   line-height: 1;
   cursor: pointer;
 }
 
 .tools .tool:last-child {
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--border-2);
 }
 
 /* The backtest toggle stands apart from the interval group. */
 .tools .tool:has(+ .toolGap) {
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--border-2);
 }
 
 .tools .toolGap {
   margin-left: 6px;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--border-2);
 }
 
 /* The time zone pair is its own group: a gap before it, borders shared inside. */
 .tools .tool:has(+ .toolGroup) {
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--border-2);
 }
 
 .tools .toolGroup {
@@ -302,9 +301,9 @@
 }
 
 .toolOn {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--bg);
+  background: var(--navy);
+  border-color: var(--navy);
+  color: var(--navy-ink);
 }
 
 @media (max-width: 899.98px) {
@@ -401,11 +400,11 @@
 }
 
 .legBtWin::before {
-  background: #0a7a3a;
+  background: #e0533f;
 }
 
 .legBtLoss::before {
-  background: #c2410c;
+  background: #3d7ee0;
 }
 
 /* Hover card for a backtest trade on the chart. */
@@ -456,13 +455,13 @@
 .btLong,
 .bt_long,
 .bt_win {
-  color: #0a7a3a;
+  color: var(--buy-ink);
 }
 
 .btShort,
 .bt_short,
 .bt_loss {
-  color: #c2410c;
+  color: var(--sell-ink);
 }
 
 .btNote {

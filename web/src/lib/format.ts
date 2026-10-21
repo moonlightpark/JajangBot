@@ -40,21 +40,27 @@ export function fmtCoin(n: number | null | undefined, coin = "BTC", d = 3): stri
   return `${safe(n).toFixed(d)} ${displayCoin(coin)}`;
 }
 
-/** "short 0.0067 BTC 3x @ 76627.7" */
+/** Korean words for the bot's English call fields. Long and buy read red, short and sell blue. */
+export const SIDE_KO: Record<string, string> = { long: "롱", short: "숏", flat: "없음", buy: "매수", sell: "매도" };
+const INTENT_KO: Record<string, string> = { open: "진입", close: "청산" };
+export const LATE_KO = "지연";
+export const HOLD_KO = "관망";
+
+/** "숏 0.0067 BTC 3x @ 76627.7" */
 export function fmtPosition(
   pos: { side: string; size: number; entryPrice: number | null; leverage?: number | null } | null | undefined,
   coin = "BTC",
 ): string {
   const label = displayCoin(coin);
   if (!pos || pos.side === "flat") {
-    return pos?.leverage != null ? `flat ${pos.leverage}x` : "flat";
+    return pos?.leverage != null ? `${SIDE_KO.flat} ${pos.leverage}x` : SIDE_KO.flat;
   }
   const lev = pos.leverage != null ? ` ${pos.leverage}x` : "";
   const entry = pos.entryPrice != null ? ` @ ${fmtPrice(pos.entryPrice)}` : "";
-  return `${pos.side} ${fmtCoin(pos.size, label, 4)}${lev}${entry}`;
+  return `${SIDE_KO[pos.side] ?? pos.side} ${fmtCoin(pos.size, label, 4)}${lev}${entry}`;
 }
 
-/** "OPEN LONG" */
+/** "롱 진입 15x" */
 export function fmtCall(d: {
   action?: string;
   intent?: string;
@@ -63,10 +69,10 @@ export function fmtCall(d: {
 } | null | undefined): string {
   if (!d) return "";
   // A hold sends no order, so the leverage and bias it came with never got applied.
-  if (d.intent === "hold") return "HOLD";
+  if (d.intent === "hold") return HOLD_KO;
   let word = "";
-  if (d.intent && d.bias) word = `${d.intent} ${d.bias}`.toUpperCase();
-  else if (d.action && d.action !== "hold") word = d.action.toUpperCase();
+  if (d.intent && d.bias) word = `${SIDE_KO[d.bias] ?? d.bias} ${INTENT_KO[d.intent] ?? d.intent}`;
+  else if (d.action && d.action !== "hold") word = SIDE_KO[d.action] ?? d.action;
   if (!word) return "";
   return d.leverage != null ? `${word} ${d.leverage}x` : word;
 }
@@ -111,11 +117,11 @@ export function fmtClock(ts: number | null | undefined, withSeconds = false): st
   return withSeconds ? `${hh}:${mm}:${pad(d.getSeconds())}` : `${hh}:${mm}`;
 }
 
-/** "07/09 04:37" in local time, for rows that span months. */
+/** "07.09 04:37" in local time, for rows that span months. */
 export function fmtDateTime(ts: number | null | undefined): string {
-  if (typeof ts !== "number" || !Number.isFinite(ts)) return "--/-- --:--";
+  if (typeof ts !== "number" || !Number.isFinite(ts)) return "--.-- --:--";
   const d = new Date(ts);
-  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** Axis label: clock, or date plus clock when the span is longer than a day. */

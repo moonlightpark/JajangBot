@@ -13,7 +13,7 @@ test("backtestMarks puts entry and exit on the view's bars, with the PnL on the 
   const times = new Set([0, 3600, 7200]);
   const marks = backtestMarks([trade({ entryTs: 10 * 60_000, exitTs: 2 * H + 5 * 60_000, pnlUsd: -13.586 })], "1H", times);
   expect(marks.map(({ trade: _, ...m }) => m)).toEqual([
-    { time: 0, kind: "entry", side: "short", text: "BT Short 1" },
+    { time: 0, kind: "entry", side: "short", text: "BT 숏 1" },
     { time: 7200, kind: "exit", side: "short", text: "BT -$13.59", win: false },
   ]);
 });
@@ -24,7 +24,7 @@ test("backtestMarks marks an open trade and drops bars the chart does not have",
     trade({ entryTs: 50 * H, exitTs: 51 * H, pnlUsd: 1 }),
   ], "1H", new Set([3600]));
   expect(marks).toHaveLength(1);
-  expect(marks[0]).toMatchObject({ time: 3600, kind: "entry", side: "long", text: "BT Long 1 open" });
+  expect(marks[0]).toMatchObject({ time: 3600, kind: "entry", side: "long", text: "BT 롱 1 보유중" });
   expect(backtestMarks([trade({ entryTs: 0, exitTs: H, pnlUsd: 1.256 })], "1D", new Set([0]))[1]!.text).toBe("BT +$1.26");
 });
 
@@ -55,36 +55,50 @@ test("backtestLots lists closed trades for the coins in scope, PnL before fees l
 });
 
 test("fmtDateTime shows month, day, and clock", () => {
-  expect(fmtDateTime(new Date(2026, 6, 9, 4, 37).getTime())).toBe("07/09 04:37");
-  expect(fmtDateTime(null)).toBe("--/-- --:--");
+  expect(fmtDateTime(new Date(2026, 6, 9, 4, 37).getTime())).toBe("07.09 04:37");
+  expect(fmtDateTime(null)).toBe("--.-- --:--");
 });
 
 test("backtest hover card shows size, leverage, ROE, and hold time", () => {
   const t = trade({ side: "long", size: 0.0010000001, entryPx: 60000, exitTs: 26 * H + 30 * 60_000, exitPx: 61000, pnlUsd: 0.9, feesUsd: 0.05, maxAdversePct: 1.234 });
   expect(fmtSize(t.size)).toBe("0.001");
   expect(roePct(t, 15)).toBeCloseTo(22.5, 4); // 0.9 on $4 margin
-  expect(fmtHeld(26 * H + 30 * 60_000)).toBe("1d 2h");
-  expect(fmtHeld(45 * 60_000)).toBe("45m");
+  expect(fmtHeld(26 * H + 30 * 60_000)).toBe("1일 2시간");
+  expect(fmtHeld(45 * 60_000)).toBe("45분");
   const d = backtestDetail(t, "BTC", 15);
-  expect(d.title).toBe("BT Long BTC");
+  expect(d.title).toBe("BT 롱 BTC");
   const row = (l: string) => d.rows.find((r) => r.label === l);
-  expect(row("Size")?.value).toBe("0.001 BTC 15x");
-  expect(row("PnL")).toEqual({ label: "PnL", value: "+$0.90  ROE +22.5%", tone: "win" });
-  expect(row("Held")?.value).toBe("1d 2h");
-  expect(row("Max adverse")?.value).toBe("1.23%");
+  expect(row("수량")?.value).toBe("0.001 BTC 15x");
+  expect(row("손익")).toEqual({ label: "손익", value: "+$0.90  수익률 +22.5%", tone: "win" });
+  expect(row("보유")?.value).toBe("1일 2시간");
+  expect(row("최대 역행")?.value).toBe("1.23%");
   const open = backtestDetail(trade({ pnlUsd: -0.2 }), "ETH", 15);
-  expect(open.rows.find((r) => r.label === "PnL")?.tone).toBe("loss");
-  expect(open.rows.find((r) => r.label === "Held")).toBeUndefined();
+  expect(open.rows.find((r) => r.label === "손익")?.tone).toBe("loss");
+  expect(open.rows.find((r) => r.label === "보유")).toBeUndefined();
 });
 
 test("chart clock labels shift UTC bars to UTC+9 without moving them", () => {
   const sec = Date.UTC(2026, 9, 14, 20, 0, 5) / 1000; // 2026-10-14 20:00:05 UTC
-  expect(crosshairLabel(sec, 9)).toBe("2026-10-15 05:00");
-  expect(crosshairLabel(sec, 0, true)).toBe("2026-10-14 20:00:05");
+  expect(crosshairLabel(sec, 9)).toBe("2026.10.15 05:00");
+  expect(crosshairLabel(sec, 0, true)).toBe("2026.10.14 20:00:05");
   expect(tickLabel(sec, 3, 9)).toBe("05:00");
   expect(tickLabel(sec, 2, 9)).toBe("15일");
   expect(tickLabel(sec, 1, 0)).toBe("10월");
-  expect(zonedDateTime(sec * 1000, 9)).toBe("10/15 05:00");
+  expect(zonedDateTime(sec * 1000, 9)).toBe("10.15 05:00");
   const t = trade({ entryTs: sec * 1000, exitTs: sec * 1000 + H });
-  expect(backtestDetail(t, "BTC", 15, (ms) => zonedDateTime(ms, 9)).rows.find((r) => r.label === "Entry")?.value).toBe("10/15 05:00  100.00");
+  expect(backtestDetail(t, "BTC", 15, (ms) => zonedDateTime(ms, 9)).rows.find((r) => r.label === "진입")?.value).toBe("10.15 05:00  100.00");
+});
+
+test("a trade with adds marks each entry with its round, and the card lists them with the average", () => {
+  const t = trade({
+    side: "long", entryTs: 0, entryPx: 95, exitTs: 3 * H, exitPx: 99, size: 2, pnlUsd: 8,
+    entries: [{ ts: 0, px: 100, size: 1 }, { ts: H, px: 90, size: 1 }],
+  });
+  const marks = backtestMarks([t], "1H", new Set([0, 3600, 7200, 10800]));
+  expect(marks.map((m) => m.text)).toEqual(["BT 롱 1", "BT 롱 2차 1", "BT +$8.00"]);
+  const d = backtestDetail(t, "BTC", 10, (ms) => zonedDateTime(ms, 0));
+  expect(d.rows.find((r) => r.label === "1차 진입")?.value).toBe("01.01 00:00  100.00");
+  expect(d.rows.find((r) => r.label === "2차 진입")?.value).toBe("01.01 01:00  90.0000");
+  expect(d.rows.find((r) => r.label === "평균가")?.value).toBe("95.0000");
+  expect(d.rows.find((r) => r.label === "진입")).toBeUndefined();
 });

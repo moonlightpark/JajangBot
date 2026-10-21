@@ -116,3 +116,34 @@ test("closedNetByCoin sums closed trades after fees and leaves open ones out", a
   expect(closedNetByCoin(null)).toEqual({});
   expect(await readBacktestReport("/nonexistent/latest.json")).toBeNull();
 });
+
+test("an add 50 bars after the entry averages in, and the trade lists both entries", () => {
+  const t0 = WARM * M; // 15m bar 130
+  const t1 = 181 * Q; // 50+ bars after the fill at t0 + 1m
+  const tape = [
+    ...calm(WARM),
+    bar(t0, { high: 102, close: 101.9 }),
+    bar(t0 + M, { high: 102, close: 101.9 }), // entry 1 fills
+    ...calm((t1 - t0 - 2 * M) / M, t0 + 2 * M),
+    bar(t1, { high: 102, close: 101.9 }), // short signal again
+    bar(t1 + M, { high: 102, close: 101.9 }), // entry 2 fills
+    ...calm(30, t1 + 2 * M),
+    bar(t1 + 32 * M, { low: 97, close: 97.5 }), // close below the long line: take short profit
+  ];
+  const one = orderSize(101.9, opts);
+  const adds = runBacktest(tape, { ...opts, maxAdds: 2, addGapBars: 50 });
+  expect(adds.trades).toHaveLength(1);
+  expect(adds.trades[0]).toMatchObject({ side: "short", exitPx: 97.5, entryTs: t0 + M });
+  expect(adds.trades[0]!.entryPx).toBeCloseTo(101.9, 9);
+  expect(adds.trades[0]!.size).toBeCloseTo(2 * one, 9);
+  expect(adds.trades[0]!.entries).toEqual([
+    { ts: t0 + M, px: 101.9, size: one },
+    { ts: t1 + M, px: 101.9, size: one },
+  ]);
+  const script = runBacktest(tape, opts);
+  expect(script.trades).toHaveLength(1);
+  expect(script.trades[0]!.size).toBe(one);
+  expect(script.trades[0]!.entries).toBeUndefined();
+  // Too soon: with a 60-bar gap the second signal (51 bars on) is held.
+  expect(runBacktest(tape, { ...opts, maxAdds: 2, addGapBars: 60 }).trades[0]!.entries).toBeUndefined();
+});

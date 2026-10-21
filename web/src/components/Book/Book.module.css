@@ -13,11 +13,12 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 8px 14px;
+  gap: 20px;
+  padding: 0 14px;
+  height: 38px;
   border-bottom: 1px solid var(--border);
-  background: var(--ink);
-  color: var(--bg);
+  background: var(--bg);
+  color: var(--ink);
 }
 
 .scope {
@@ -34,19 +35,18 @@
   border: 0;
   padding: 0;
   color: inherit;
-  font: 700 11px var(--font-mono), monospace;
-  letter-spacing: 0.06em;
+  font: 500 12px var(--font-sans);
+  letter-spacing: 0;
   cursor: pointer;
 }
 
 .scopeBtn {
-  opacity: 0.4;
+  color: var(--muted);
 }
 
 .scopeOn {
-  opacity: 1;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  color: var(--navy);
+  font-weight: 700;
 }
 
 .tab,
@@ -56,19 +56,19 @@
   border: 0;
   padding: 0;
   color: inherit;
-  font: 700 12px var(--font-mono), monospace;
-  letter-spacing: 0.08em;
+  height: 100%;
+  font: 700 14px var(--font-sans);
+  letter-spacing: 0;
   cursor: pointer;
 }
 
 .tab {
-  opacity: 0.45;
+  color: var(--muted);
 }
 
 .tabOn {
-  opacity: 1;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  color: var(--navy);
+  box-shadow: inset 0 -2px 0 var(--navy);
 }
 
 .scroller {
@@ -94,11 +94,11 @@
 .table th {
   position: sticky;
   top: 0;
-  background: var(--panel);
+  background: #f7f8fa;
   color: var(--muted);
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.06em;
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -144,7 +144,7 @@
   }
 }
 
-/* Backtest rows and summary in History: simulated, so they carry the chart's backtest blue. */
+/* Backtest rows and summary in History: simulated, so they carry the chart's backtest purple. */
 .btTag {
   color: var(--backtest);
 }
@@ -155,6 +155,6 @@
   gap: 4px 16px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
-  font: 400 11px var(--font-mono), monospace;
+  font: 400 12px var(--font-sans);
   color: var(--ink-2);
 }

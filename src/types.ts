@@ -182,8 +182,12 @@ export interface Timing {
 /** One simulated trade from `bun run backtest`. Not a fill, and the strategy made the call, not Jev. */
 export interface BacktestTrade {
   side: "long" | "short";
+  /** First entry. */
   entryTs: number;
+  /** Average entry over all entries. */
   entryPx: number;
+  /** Every entry, oldest first, when there was more than one (adds, 물타기). */
+  entries?: { ts: number; px: number; size: number }[];
   /** null while still open at the end of the data. */
   exitTs: number | null;
   exitPx: number;
@@ -191,7 +195,7 @@ export interface BacktestTrade {
   /** Net of both fees. An open trade is marked at the last close and pays no exit fee. */
   pnlUsd: number;
   feesUsd: number;
-  /** Worst move against the entry while held, in percent. */
+  /** Worst move against the average entry while held, in percent. */
   maxAdversePct: number;
 }
 
