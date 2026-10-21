@@ -14,6 +14,7 @@
   background: var(--navy);
   color: var(--hdr-ink);
   border-bottom: 1px solid var(--navy);
+  margin-bottom: 2px;
 }
 
 .brandLockup {

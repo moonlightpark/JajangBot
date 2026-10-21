@@ -42,7 +42,7 @@
 | dry run 잔액 | 시작 $10000(`BANKROLL_USD`, 56번. 64번부터 BTC 하나라 BTC에 전액) + 청산된 백테스트 손익 + 봇 손익(수수료 뺌). 상단 balance, backtest에 표시 (32, 33번). 미청산 백테스트 포지션은 "백테스트 평가손익"으로 따로 표시, 잔고에 미포함 (57번) |
 | Jev 비교 | `bun run start:jev`(:3002, dry run), `bun run dev:web:jev`(:3003), `bun run compare`. Jev 키가 없어 아직 Jev 실행 안 함 (35번) |
 | 테스트 | `bun test` 138개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
-| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 62번까지 커밋 `d182c16` 푸시, 서버 배포 완료(63번)) |
+| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 78번 커밋 푸시, 서버 배포 완료) |
 | 서버 배포 | `220.76.214.201`(Ubuntu 24.04, 사용자 `mineos`, shipgo와 같이 쓰는 서버). `~/jevtrade`에서 systemd `jevtrade-bot`(:3000), `jevtrade-web`(:3001), 둘 다 127.0.0.1에만 바인딩. nginx가 `www.gpurent.io`, `api.gpurent.io`를 HTTPS로 연결, 인증서 자동 갱신 (43, 44번) |
 | 자동 배포 | `.github/workflows/deploy.yml`: main에 push하면 `bun test` 후 SSH로 `deploy/deploy.sh` 실행. Secrets 4개 등록 완료. (43, 45번) |
 | 미검증 | 실제 키로 주문하는 경로 전체 |
@@ -1498,3 +1498,19 @@ $1000 때와 같은 흐름: 부분 익절을 켜면 손실, 끄면 이익. 격�
 - 헤더 배경을 네이비(`--navy` #093687)로, 글자는 흰색, 보조 글자는 반투명 흰색. 판단 주체 표시 테두리도 흰색. 수익(빨강)과 손실(파랑)은 네이비 위에서 읽히도록 헤더 안에서만 밝은 색(#ff8f7a, #8cc4ff)으로 바꿈. 연결 점은 밝은 초록, 로딩 자리 표시는 반투명 흰색. `themeColor`도 #093687(모바일 브라우저 상단 색).
 - 파비콘: 네이비 둥근 사각형에 흰색 B(`web/src/app/icon.svg`). `favicon.ico`(16, 32px)와 `apple-icon.png`(180px, 모서리 없는 사각형)도 같은 그림으로 다시 만듦(scratchpad에서 `sips`로 PNG, ICO는 PNG를 묶어 작성).
 - 로컬 화면에서 확인. `bun test` 141개 통과.
+
+### 76. 63~75번 커밋, push, 서버 배포와 서버 .env 변경
+
+- 커밋 `1a3aacf`(스윙 손절, 1차 진입가 2/3 익절, 거래기록 잔액 열, 코인 선택 줄 삭제, 네이비 헤더, 파란 B 파비콘, 63~75번 기록)를 `origin/main`에 push. 커밋 전 `bun test` 141개 통과. GitHub Actions 배포 성공.
+- 배포 뒤 서버 `.env`: `STRATEGY_STOP_PCT=`(5% 손절 끔), `STRATEGY_SWING_STOP=true`, `STRATEGY_FIRST_PRICE_TP=2/3` 적용하고 재시작. 시작 로그 `15m 5x (EMA 200, bar close, live take profit, take 66.67% at entry 1 price after entry 3, swing stop after entry 3, adds 2 after 70 bars) ... quote $300`. 시작 백테스트 +$67.06, 잔고 $10067.06. `GET /`의 `startUsd` 10000 확인(잔액 열).
+- 서버 `.env` 요약: `COINS=BTC`, `QUOTE_USD=300`, `BANKROLL_USD=10000`, `STRATEGY_LEVERAGE=5`, `STRATEGY_EXIT=opposite`, `STRATEGY_ON_BAR_CLOSE=true`, `STRATEGY_EXIT_LIVE=true`, `STRATEGY_MAX_ADDS=2`, `STRATEGY_ADD_GAP_BARS=70`, `STRATEGY_PARTIAL_TP_PCT=`(끔). 서버는 키가 없어 dry run.
+
+### 77. 상단 메뉴바 아래 2px 여백
+
+**요청**: 탑 메뉴바 하단에 2px 여백.
+
+- `.header`에 `margin-bottom: 2px`(`web/src/components/Header/Header.module.css`). 헤더와 아래 영역 사이에 흰 줄 2px. 로컬 화면에서 확인.
+
+### 78. 76~77번 커밋, push, 서버 배포
+
+- 메뉴바 아래 2px 여백과 76~77번 기록을 커밋해 `origin/main`에 push. 커밋 전 `bun test` 141개 통과. 서버 `.env` 변경 없음.
