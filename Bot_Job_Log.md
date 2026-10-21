@@ -42,7 +42,7 @@
 | dry run 잔액 | 시작 $10000(`BANKROLL_USD`, 56번. 64번부터 BTC 하나라 BTC에 전액) + 청산된 백테스트 손익 + 봇 손익(수수료 뺌). 상단 balance, backtest에 표시 (32, 33번). 미청산 백테스트 포지션은 "백테스트 평가손익"으로 따로 표시, 잔고에 미포함 (57번) |
 | Jev 비교 | `bun run start:jev`(:3002, dry run), `bun run dev:web:jev`(:3003), `bun run compare`. Jev 키가 없어 아직 Jev 실행 안 함 (35번) |
 | 테스트 | `bun test` 146개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
-| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 82번까지 커밋 푸시, 서버 배포와 서버 `.env` `STRATEGY_RETAKE_TP=50` 적용 완료) |
+| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 83번까지 커밋 푸시, 서버 배포와 서버 `.env` `STRATEGY_RETAKE_TP=50` 적용 완료) |
 | 서버 배포 | `220.76.214.201`(Ubuntu 24.04, 사용자 `mineos`, shipgo와 같이 쓰는 서버). `~/jevtrade`에서 systemd `jevtrade-bot`(:3000), `jevtrade-web`(:3001), 둘 다 127.0.0.1에만 바인딩. nginx가 `www.gpurent.io`, `api.gpurent.io`를 HTTPS로 연결, 인증서 자동 갱신 (43, 44번) |
 | 자동 배포 | `.github/workflows/deploy.yml`: main에 push하면 `bun test` 후 SSH로 `deploy/deploy.sh` 실행. Secrets 4개 등록 완료. (43, 45번) |
 | 미검증 | 실제 키로 주문하는 경로 전체 |
@@ -1549,3 +1549,10 @@ $1000 때와 같은 흐름: 부분 익절을 켜면 손실, 끄면 이익. 격�
 
 - 79~81번(2/3 익절 뒤 나머지를 1차로 간주, 재진입 2차의 50% 익절, 거래기록 주문금액)을 커밋해 `origin/main`에 push. 커밋 전 `bun test` 146개 통과.
 - 배포 뒤 서버 `.env`에 `STRATEGY_RETAKE_TP=50` 추가하고 재시작. 서버 `QUOTE_USD`는 300 그대로(로컬은 500).
+
+### 83. 브라우저 탭 제목을 "실시간 트레이딩봇"으로
+
+**요청**: `<title>Jev Trade | Live Jev trading bot on crypto and other assets</title>`를 `<title>실시간 트레이딩봇</title>`로.
+
+- `web/src/app/layout.tsx`의 `title` 상수 변경. 같은 상수를 쓰는 공유 미리보기(OpenGraph, Twitter) 제목과 미리보기 이미지 alt도 함께 바뀜. 설명(description)과 구조화 데이터는 그대로.
+- 로컬 `curl`로 `<title>실시간 트레이딩봇</title>` 확인. 커밋, push, 서버 배포(서버 `.env` 변경 없음).

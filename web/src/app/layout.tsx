@@ -6,7 +6,7 @@ const PRETENDARD =
   "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css";
 
 const site = "https://www.jev-trade.com";
-const title = "Jev Trade | Live Jev trading bot on crypto and other assets";
+const title = "실시간 트레이딩봇";
 const description =
   "Jev Trade is live Jev trading: a bot that reads the book every tick and trades BTC, ETH, SOL, DOGE, and BNB.";
 
