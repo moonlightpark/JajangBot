@@ -154,3 +154,27 @@ export function parseBacktest(raw: unknown): BacktestReport | null {
     tradesByCoin: r.tradesByCoin,
   };
 }
+
+/**
+ * Unrealized PnL of the backtest's open trades at the live price, after the entry fee
+ * (the backtest's own open-trade PnL). A coin without a live price keeps the PnL the
+ * backtest ended with. Null when no trade is open.
+ */
+export function backtestOpenPnl(report: BacktestReport | null, midByCoin: Record<string, number | null | undefined>): number | null {
+  let sum = 0;
+  let any = false;
+  for (const [coin, trades] of Object.entries(report?.tradesByCoin ?? {})) {
+    for (const t of trades) {
+      if (t.exitTs != null) continue;
+      any = true;
+      const mid = midByCoin[coin];
+      if (mid == null || !(mid > 0)) {
+        sum += t.pnlUsd;
+        continue;
+      }
+      const gross = (t.side === "long" ? mid - t.entryPx : t.entryPx - mid) * t.size;
+      sum += gross - t.feesUsd;
+    }
+  }
+  return any ? sum : null;
+}

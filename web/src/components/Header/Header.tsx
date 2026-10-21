@@ -12,6 +12,8 @@ export interface HeaderProps {
   realized: number | null;
   /** Dry run: closed backtest PnL already inside `balance`. Null hides it. */
   backtest?: number | null;
+  /** Open backtest trades marked at the live price. Shown on its own, not in `balance`. Null hides it. */
+  backtestOpen?: number | null;
   /** From the bot's .env: 실거래, 테스트넷, 데모, or 모의거래. Null until meta arrives. */
   mode: TradingMode | null;
   /** Who makes the call: Jev, 모의 모델, or TradingView 전략. */
@@ -40,7 +42,7 @@ function Score({
   );
 }
 
-export default function Header({ connection, balance, unrealized, realized, backtest = null, mode, decider }: HeaderProps) {
+export default function Header({ connection, balance, unrealized, realized, backtest = null, backtestOpen = null, mode, decider }: HeaderProps) {
   const live = connection === "live";
   const label = !live ? "연결 끊김" : mode ? mode.label : "연결 중";
 
@@ -67,6 +69,13 @@ export default function Header({ connection, balance, unrealized, realized, back
             label="백테스트"
             value={backtest}
             title="bun run backtest(과거 캔들에 전략 규칙 적용)로 청산된 가상 거래 손익. 잔고에 포함. 모의거래에서만 표시."
+          />
+        ) : null}
+        {backtestOpen != null ? (
+          <Score
+            label="백테스트 평가손익"
+            value={backtestOpen}
+            title="백테스트에서 아직 청산되지 않은 가상 포지션을 현재가로 평가한 손익(진입 수수료 포함). 잔고에 포함하지 않음. 봇의 실제 포지션과는 별개."
           />
         ) : null}
         <Score label="평가손익" value={unrealized} />

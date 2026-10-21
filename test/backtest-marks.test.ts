@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { crosshairLabel, tickLabel, zonedDateTime } from "../web/src/lib/chartTime";
-import { backtestDetail, backtestLots, backtestMarks, fmtHeld, fmtSize, lotSummary, parseBacktest, roePct } from "../web/src/lib/backtest";
+import { backtestDetail, backtestLots, backtestMarks, backtestOpenPnl, fmtHeld, fmtSize, lotSummary, parseBacktest, roePct } from "../web/src/lib/backtest";
 import { fmtDateTime } from "../web/src/lib/format";
 import type { BacktestTrade } from "../src/types";
 
@@ -101,4 +101,19 @@ test("a trade with adds marks each entry with its round, and the card lists them
   expect(d.rows.find((r) => r.label === "2차 진입")?.value).toBe("01.01 01:00  90.0000");
   expect(d.rows.find((r) => r.label === "평균가")?.value).toBe("95.0000");
   expect(d.rows.find((r) => r.label === "진입")).toBeUndefined();
+});
+
+test("backtestOpenPnl marks open trades at the live price, after the entry fee, and skips closed ones", () => {
+  const report = {
+    from: 0, to: 1, ranAt: 1, quoteUsd: 40, leverageByCoin: {},
+    tradesByCoin: {
+      BTC: [trade({ side: "short", entryPx: 100, size: 2, feesUsd: 0.1, pnlUsd: 3 })],
+      ETH: [trade({ side: "long", entryPx: 50, size: 1, feesUsd: 0.05, pnlUsd: -0.5 })],
+      SOL: [trade({ exitTs: 5, pnlUsd: 9 })],
+    },
+  };
+  // BTC short at 100 marked at 98: +4 - 0.1. ETH has no price: keeps -0.5.
+  expect(backtestOpenPnl(report, { BTC: 98, ETH: null })).toBeCloseTo(3.9 - 0.5, 9);
+  expect(backtestOpenPnl({ ...report, tradesByCoin: { SOL: report.tradesByCoin.SOL } }, {})).toBeNull();
+  expect(backtestOpenPnl(null, {})).toBeNull();
 });

@@ -10,6 +10,7 @@ import { deciderLabel, tradingMode } from "@/lib/mode";
 import SleeveStrip from "@/components/SleeveStrip/SleeveStrip";
 import { lastMeaningfulCall } from "@/lib/format";
 import { portfolioBalance, portfolioPnl } from "@/lib/pnl";
+import { backtestOpenPnl } from "@/lib/backtest";
 import { useBacktest } from "@/lib/useBacktest";
 import { useFeed } from "@/lib/useFeed";
 import { useLevels } from "@/lib/useLevels";
@@ -82,6 +83,11 @@ export default function Page() {
     const rows = feed.meta?.sleeves ?? [];
     return rows.some((s) => s.backtestUsd) ? rows.reduce((sum, s) => sum + (s.backtestUsd ?? 0), 0) : null;
   }, [feed.meta]);
+  const backtestOpen = useMemo(() => {
+    const mids: Record<string, number | null | undefined> = {};
+    for (const c of coins) mids[c] = latestByCoin[c]?.mid;
+    return backtestOpenPnl(backtest, mids);
+  }, [backtest, coins, latestByCoin]);
   const waiting = !feed.meta;
 
   return (
@@ -92,6 +98,7 @@ export default function Page() {
         unrealized={hasBooks ? pnl.unrealized : null}
         realized={hasBooks ? pnl.realized : null}
         backtest={hasBooks ? backtestUsd : null}
+        backtestOpen={hasBooks ? backtestOpen : null}
         mode={meta ? tradingMode(meta, meta.wallet) : null}
         decider={meta ? deciderLabel(meta.model) : null}
       />

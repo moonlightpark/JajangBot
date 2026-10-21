@@ -37,12 +37,12 @@
 | 차트 시간대 | 기본 UTC+9, 버튼으로 UTC 전환. 봉 경계는 UTC 그대로 (40번) |
 | 전략 라인 | 과거 3개월부터 가격을 따라 그림, 모든 주기에서 표시(`GET /levels`, 27번) |
 | 전략 비교 | `bun run sweep`. 12개월, 변형 192가지. 결과와 후보는 29번 (라이브 설정은 그대로) |
-| 전략 변형 | 후보 B 적용 중: EMA 200, 손절 5%, 채널 중간 청산, 봉 마감 판단 (`.env` `STRATEGY_*`, 30번). 추가 진입(물타기) 최대 2번, 50봉 간격 (52번) |
+| 전략 변형 | EMA 200, 손절 5%, 반대 라인 청산(원본, 58번. 전에는 채널 중간), 봉 마감 판단 (`.env` `STRATEGY_*`, 30번). 추가 진입(물타기) 최대 2번, 50봉 간격 (52번) |
 | History 탭 | 봇 거래와 백테스트 거래(3개월)를 함께 표시, Source 열로 구분 (31번) |
-| dry run 잔액 | 시작 $500(코인당 $100) + 청산된 백테스트 손익 + 봇 손익(수수료 뺌). 상단 balance, backtest에 표시 (32, 33번) |
+| dry run 잔액 | 시작 $10000(코인당 $2000, `BANKROLL_USD`, 56번) + 청산된 백테스트 손익 + 봇 손익(수수료 뺌). 상단 balance, backtest에 표시 (32, 33번). 미청산 백테스트 포지션은 "백테스트 평가손익"으로 따로 표시, 잔고에 미포함 (57번) |
 | Jev 비교 | `bun run start:jev`(:3002, dry run), `bun run dev:web:jev`(:3003), `bun run compare`. Jev 키가 없어 아직 Jev 실행 안 함 (35번) |
-| 테스트 | `bun test` 123개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
-| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 52번까지 커밋 `0afc76b` 푸시, 서버 배포 완료(53번)) |
+| 테스트 | `bun test` 124개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
+| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 54번까지 커밋 `fff2890` 푸시, 서버 배포 완료(55번)) |
 | 서버 배포 | `220.76.214.201`(Ubuntu 24.04, 사용자 `mineos`, shipgo와 같이 쓰는 서버). `~/jevtrade`에서 systemd `jevtrade-bot`(:3000), `jevtrade-web`(:3001), 둘 다 127.0.0.1에만 바인딩. nginx가 `www.gpurent.io`, `api.gpurent.io`를 HTTPS로 연결, 인증서 자동 갱신 (43, 44번) |
 | 자동 배포 | `.github/workflows/deploy.yml`: main에 push하면 `bun test` 후 SSH로 `deploy/deploy.sh` 실행. Secrets 4개 등록 완료. (43, 45번) |
 | 미검증 | 실제 키로 주문하는 경로 전체 |
@@ -1204,3 +1204,45 @@ README.md 전체를 한글로 다시 작성했습니다. 기존 내용에 더해
 - 코드: `focusRange`, `ChartFocus`(`web/src/lib/ohlc.ts`), `page.tsx`의 `focusTrade`, `Book`의 `onFocusTrade`, `CandlePane`의 `focus`.
 - 개발 모드에서 StrictMode가 차트를 두 번 만들어 첫 차트에만 적용되던 문제를 찾아, 차트를 정리할 때 적용 기록도 초기화하도록 고침.
 - 테스트 `test/ohlc-focus.test.ts` 추가. `bun test` 123개 통과. 로컬 브라우저에서 BTC, SOL, ETH 행 클릭으로 확인.
+
+### 55. 54번 커밋, push, 서버 자동 배포
+
+- 커밋 `fff2890` "Jump the chart to a trade when its history row is clicked"(53, 54번 기록 포함)를 `origin/main`에 push. 커밋 전 `bun test` 123개 통과.
+- GitHub Actions 배포 성공. https://www.gpurent.io 200, 서버 `jevtrade-bot`, `jevtrade-web` 둘 다 active.
+- 이 55번 기록은 다음 커밋에 포함.
+
+### 56. 모의거래 시작 잔고 BANKROLL_USD=10000, 서버와 로컬 재시작
+
+- 사용자가 로컬 `.env`를 `BANKROLL_USD=10000`으로 수정. 서버 `.env`(`/home/mineos/jevtrade/.env`)는 500이라 같은 값으로 맞춤.
+- 서버는 `sudo -n /usr/bin/systemctl restart jevtrade-bot jevtrade-web`(허용된 명령 그대로)로 재시작. 서비스 이름 하나만 주면 sudo 암호를 물음.
+- 코인 5개라 코인당 시작 $2000 + 청산된 백테스트 손익. 시작 로그 예: BTC `balance $2013.99 (start $2000.00 + backtest $13.99)`. 재시작으로 모의거래 포지션은 초기화.
+- 로컬 봇도 재시작. 시작 중 SOL 캔들 요청이 Bybit `10016 Get kline failed`로 한 번 실패했지만 봇은 정상 시작.
+
+### 57. 상단에 "백테스트 평가손익" 추가 (잔고와 별도)
+
+**배경**: 상단 "백테스트"는 청산된 백테스트 거래 손익만, "평가손익"은 봇 실제 포지션만 계산. 백테스트의 미청산 포지션(지금 5개 코인 모두 숏, DOGE는 2차 진입 포함)은 어디에도 계산되지 않았음.
+
+- `backtestOpenPnl`(`web/src/lib/backtest.ts`): 미청산 백테스트 거래를 각 코인의 현재가(`latest.mid`)로 평가. 진입 수수료 뺌(백테스트의 미청산 손익과 같은 방식). 현재가가 없는 코인은 백테스트가 끝난 시점 손익 사용. 미청산 거래가 없으면 표시 안 함.
+- 상단 "백테스트" 다음에 "백테스트 평가손익" 표시. 시세가 바뀔 때마다 갱신. 잔고에는 더하지 않음. 마우스를 올리면 설명.
+- 모바일 상단 점수 줄은 넘치면 다음 줄로 내려가게 `flex-wrap`. 브라우저 창 크기 조절이 안 돼서 모바일 화면은 직접 확인하지 못함.
+- 테스트 1개 추가. `bun test` 124개 통과. 로컬 화면에서 `+$0.72` → `+$0.69`처럼 시세에 따라 바뀌는 것 확인.
+- 참고: 로컬 `.env`에는 BTC 데모 키가 있어 BTC는 dry run이 아니고 데모 계좌(잔액 $0)라 로컬 상단 잔고가 $2000 적게 나옴. 서버는 5개 코인 모두 dry run이라 정상.
+
+### 58. 익절 기준을 반대 라인(원본)으로 변경: STRATEGY_EXIT=opposite
+
+**요청**: 익절 기준 확인 후, 2번(반대 라인) 기준으로 익절하도록 수정.
+
+**익절 기준 정리**: 미리 걸어두는 주문이 아니라 판단 때마다 조건을 보고 시장가(IOC 테이커)로 전체 청산. 순서는 손절 5%(현재가, 평균 진입가 기준), 반대 라인(롱: 마감 봉 고가 > 숏 라인, 숏: 마감 봉 종가 < 롱 라인), 그리고 `exit=mid`일 때 채널 중간.
+
+- 로컬과 서버 `.env`의 `STRATEGY_EXIT`를 `mid`에서 `opposite`로 바꿈. 코드 변경 없음. 서버와 로컬 봇 재시작. 시작 로그에서 `exit mid`가 빠진 것 확인(`EMA 200, stop 5%, bar close, adds 2 every 50 bars`).
+
+**최근 3개월 백테스트 비교** (5개 코인, 코인당 $40, 15x, EMA 200, 손절 5%, 봉 마감, 추가 진입 2번 50봉)
+
+| | 채널 중간 (mid) | 반대 라인 (opposite) |
+| --- | --- | --- |
+| 청산 거래 | 210 | 123 |
+| 순손익 | +$38.33 | +$65.28 |
+| 코인별 최대 낙폭 중 최대 | $13.47 (DOGE) | $26.80 (BTC) |
+| 격리 마진 청산 위험 거래 | 1 | 3 (BTC, SOL, DOGE) |
+
+반대 라인은 수익을 더 길게 가져가 손익은 커졌지만, 보유 시간이 길어져 낙폭과 청산 위험 거래가 늘어남. BNB는 -$0.74 → -$6.33으로 나빠짐.
