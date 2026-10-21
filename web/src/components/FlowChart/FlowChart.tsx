@@ -7,7 +7,7 @@ import { backtestMarks } from "@/lib/backtest";
 import type { BacktestReport, ChannelPoint } from "@/lib/bot-types";
 import { channelForView } from "@/lib/levels";
 import { DEFAULT_ZONE, ZONES } from "@/lib/chartTime";
-import { barsForView, fillMarks, type BarSize } from "@/lib/ohlc";
+import { barsForView, fillMarks, type BarSize, type ChartFocus } from "@/lib/ohlc";
 import { Bone } from "@/components/Skeleton/Skeleton";
 import CandlePane from "./CandlePane";
 import styles from "./FlowChart.module.css";
@@ -34,6 +34,7 @@ export default function FlowChart({
   meta,
   backtest = null,
   channelPoints,
+  focus = null,
   onNeedMoreTape,
 }: {
   tape?: PricePoint[];
@@ -44,6 +45,8 @@ export default function FlowChart({
   backtest?: BacktestReport | null;
   /** MODEL=strategy channel per 15m bar for this coin, from GET /levels. */
   channelPoints?: ChannelPoint[];
+  /** A trade picked in 거래기록: the chart scrolls to it. */
+  focus?: ChartFocus | null;
   onNeedMoreTape?: () => void;
 }) {
   const [interval, setIntervalId] = useState<BarSize>(DEFAULT_INTERVAL);
@@ -55,6 +58,11 @@ export default function FlowChart({
   useEffect(() => {
     setIntervalId(DEFAULT_INTERVAL);
   }, [meta?.coin]);
+
+  // 1s bars only hold the last minutes, so a picked trade is shown on 15m.
+  useEffect(() => {
+    if (focus) setIntervalId((v) => (v === "1s" ? DEFAULT_INTERVAL : v));
+  }, [focus]);
 
   useEffect(() => {
     if (interval !== "1s") onNeedMoreTape?.();
@@ -142,6 +150,7 @@ export default function FlowChart({
               entry={entry}
               channel={channel}
               rangeKey={`${coin}:${interval}`}
+              focus={interval === "1s" ? null : focus}
               visibleBars={VISIBLE_BARS}
               secondsVisible={interval === "1s"}
               offsetH={zone.offsetH}

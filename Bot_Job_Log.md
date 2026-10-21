@@ -41,8 +41,8 @@
 | History 탭 | 봇 거래와 백테스트 거래(3개월)를 함께 표시, Source 열로 구분 (31번) |
 | dry run 잔액 | 시작 $500(코인당 $100) + 청산된 백테스트 손익 + 봇 손익(수수료 뺌). 상단 balance, backtest에 표시 (32, 33번) |
 | Jev 비교 | `bun run start:jev`(:3002, dry run), `bun run dev:web:jev`(:3003), `bun run compare`. Jev 키가 없어 아직 Jev 실행 안 함 (35번) |
-| 테스트 | `bun test` 115개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
-| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 45번 커밋까지 푸시) |
+| 테스트 | `bun test` 123개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
+| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 52번까지 커밋 `0afc76b` 푸시, 서버 배포 완료(53번)) |
 | 서버 배포 | `220.76.214.201`(Ubuntu 24.04, 사용자 `mineos`, shipgo와 같이 쓰는 서버). `~/jevtrade`에서 systemd `jevtrade-bot`(:3000), `jevtrade-web`(:3001), 둘 다 127.0.0.1에만 바인딩. nginx가 `www.gpurent.io`, `api.gpurent.io`를 HTTPS로 연결, 인증서 자동 갱신 (43, 44번) |
 | 자동 배포 | `.github/workflows/deploy.yml`: main에 push하면 `bun test` 후 SSH로 `deploy/deploy.sh` 실행. Secrets 4개 등록 완료. (43, 45번) |
 | 미검증 | 실제 키로 주문하는 경로 전체 |
@@ -1184,3 +1184,23 @@ README.md 전체를 한글로 다시 작성했습니다. 기존 내용에 더해
 - [x] 대시보드 GitHub 링크 삭제 (47번)
 - [ ] `llms.txt` 링크(`layout.tsx`)와 구조화 데이터의 저장소 주소를 바꿀지 결정
 - [ ] (선택) Bybit 레이트 리밋 대응 보강
+
+### 53. 46~52번 커밋, push, 서버 자동 배포
+
+**요청**: 커밋 / 배포.
+
+- 커밋 `0afc76b` "Korean exchange-style dashboard, 2.5 min decisions, and strategy scale-in"를 `origin/main`에 push. 커밋 전 `bun test` 121개 통과, `.env`는 git 제외 확인.
+- GitHub Actions 배포 성공. https://www.gpurent.io 200, 상단 문구 "실시간 트레이딩 봇" 확인.
+- 서버 봇 시작 로그: `model=strategy 15m 15x (EMA 200, stop 5%, exit mid, bar close, adds 2 every 50 bars) tick 150000ms`. 2.5분 판단과 추가 진입이 서버에 적용됨.
+- 이 53번 기록은 다음 커밋에 포함.
+
+### 54. 거래기록 행을 클릭하면 차트가 그 거래 시점으로 이동
+
+**요청**: 거래기록 리스트에서 행을 클릭하면 거래한 시점의 차트로 이동.
+
+- 거래기록(봇, 백테스트 모두) 행을 클릭하면 그 코인을 선택하고, 차트를 진입부터 청산까지가 가운데 오도록 이동. 최소 80봉 폭, 긴 거래는 거래 구간의 1.5배 폭. 클릭한 행은 회색으로 표시.
+- 차트가 1초봉이면 15분봉으로 바꿈(1초봉에는 과거가 없음). 다른 주기에서는 그 주기 그대로 이동.
+- 봉이 아직 그 시점까지 안 불러와졌으면 불러온 뒤 이동. 과거 봉이 더 불러와져 차트가 최신으로 돌아가면 같은 거래로 다시 이동.
+- 코드: `focusRange`, `ChartFocus`(`web/src/lib/ohlc.ts`), `page.tsx`의 `focusTrade`, `Book`의 `onFocusTrade`, `CandlePane`의 `focus`.
+- 개발 모드에서 StrictMode가 차트를 두 번 만들어 첫 차트에만 적용되던 문제를 찾아, 차트를 정리할 때 적용 기록도 초기화하도록 고침.
+- 테스트 `test/ohlc-focus.test.ts` 추가. `bun test` 123개 통과. 로컬 브라우저에서 BTC, SOL, ETH 행 클릭으로 확인.

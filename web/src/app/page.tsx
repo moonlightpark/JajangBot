@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Book from "@/components/Book/Book";
 import DecisionPanel from "@/components/DecisionPanel/DecisionPanel";
 import Feed from "@/components/Feed/Feed";
@@ -13,6 +13,7 @@ import { portfolioBalance, portfolioPnl } from "@/lib/pnl";
 import { useBacktest } from "@/lib/useBacktest";
 import { useFeed } from "@/lib/useFeed";
 import { useLevels } from "@/lib/useLevels";
+import type { ChartFocus } from "@/lib/ohlc";
 import type { BlockEvent, Meta, SleeveFeed } from "@/lib/types";
 import styles from "./page.module.css";
 
@@ -37,6 +38,11 @@ export default function Page() {
   const backtest = useBacktest(API_URL, feed.meta?.startedAt);
   const channelByCoin = useLevels(API_URL, feed.meta?.startedAt);
   const [picked, setPicked] = useState<string | null>(null);
+  const [focus, setFocus] = useState<ChartFocus | null>(null);
+  const focusTrade = useCallback((c: string, fromMs: number, toMs: number) => {
+    setPicked(c);
+    setFocus({ coin: c, fromMs, toMs, nonce: Date.now() });
+  }, []);
 
   const coins = useMemo(() => {
     if (feed.meta?.sleeves.length) return feed.meta.sleeves.map((s) => s.coin);
@@ -107,6 +113,7 @@ export default function Page() {
               meta={meta}
               backtest={backtest}
               channelPoints={channelByCoin[coin]}
+              focus={focus?.coin === coin ? focus : null}
               onNeedMoreTape={feed.loadTape}
             />
           </div>
@@ -123,6 +130,7 @@ export default function Page() {
         selected={coin}
         meta={meta}
         onSelect={setPicked}
+        onFocusTrade={focusTrade}
         onNeedMoreTape={feed.loadTape}
         backtest={backtest}
         waiting={waiting}

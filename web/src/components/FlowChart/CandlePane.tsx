@@ -20,7 +20,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { backtestDetail, type BacktestMark } from "@/lib/backtest";
-import { canUpdateInPlace, type Candle, type FillMark, type SeriesShown } from "@/lib/ohlc";
+import { asUtcSec, canUpdateInPlace, focusRange, type Candle, type ChartFocus, type FillMark, type SeriesShown } from "@/lib/ohlc";
 import type { ChannelLines } from "@/lib/levels";
 import { crosshairLabel, tickLabel, zonedDateTime } from "@/lib/chartTime";
 import styles from "./FlowChart.module.css";
@@ -42,6 +42,8 @@ type Props = {
   /** MODEL=strategy channel over time: dashed long (red) and short (blue) lines. */
   channel: ChannelLines | null;
   rangeKey: string;
+  /** Scroll to this trade once its bars are loaded. */
+  focus: ChartFocus | null;
   visibleBars: number;
   secondsVisible: boolean;
   /** Hours added to UTC for axis, crosshair, and hover card labels. */
@@ -119,6 +121,7 @@ export default function CandlePane({
   entry,
   channel,
   rangeKey,
+  focus,
   visibleBars,
   secondsVisible,
   offsetH,
@@ -135,6 +138,8 @@ export default function CandlePane({
   /** What the series holds now, so an incremental update is only used when it is safe. */
   const shownRef = useRef<SeriesShown>({ key: "", stem: "", count: 0, lastTime: 0 });
   const rangeRef = useRef("");
+  /** The focus last applied, and the bars it was applied on. */
+  const focusedRef = useRef({ nonce: 0, rangeKey: "", stem: "" });
   const btByTimeRef = useRef(new Map<number, BacktestMark[]>());
   const [hover, setHover] = useState<{ x: number; y: number; time: number } | null>(null);
   const formatRef = useRef(formatPrice);
@@ -225,6 +230,7 @@ export default function CandlePane({
       stemRef.current = "";
       shownRef.current = { key: "", stem: "", count: 0, lastTime: 0 };
       rangeRef.current = "";
+      focusedRef.current = { nonce: 0, rangeKey: "", stem: "" };
     };
   }, []);
 
@@ -260,6 +266,20 @@ export default function CandlePane({
       showLatest(chartRef.current, bars.length, visibleBars);
     }
   }, [candles, rangeKey, visibleBars]);
+
+  // After the bars effect, so a focus wins over its jump to the latest bar. Waits until the
+  // loaded bars reach back to the trade, and applies again when older bars load into the same
+  // view (that redraw jumps to the latest bar).
+  useEffect(() => {
+    if (!focus) return;
+    const done = focusedRef.current;
+    const stem = stemRef.current;
+    if (done.nonce === focus.nonce && (done.rangeKey !== rangeKey || done.stem === stem)) return;
+    const range = focusRange(candles.map((b) => b.time), asUtcSec(focus.fromMs), asUtcSec(focus.toMs), visibleBars);
+    if (!range) return;
+    chartRef.current?.timeScale().setVisibleLogicalRange(range);
+    focusedRef.current = { nonce: focus.nonce, rangeKey, stem };
+  }, [focus, candles, rangeKey, visibleBars]);
 
   useEffect(() => {
     const byTime = new Map<number, BacktestMark[]>();

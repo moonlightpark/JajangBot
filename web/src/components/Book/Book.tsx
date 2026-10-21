@@ -32,6 +32,7 @@ export default function Book({
   selected,
   meta,
   onSelect,
+  onFocusTrade,
   onNeedMoreTape,
   backtest = null,
   waiting = false,
@@ -42,6 +43,8 @@ export default function Book({
   selected: string;
   meta?: Meta | null;
   onSelect: (coin: string) => void;
+  /** A 거래기록 row was clicked: show that trade, entry to exit, on the chart. */
+  onFocusTrade?: (coin: string, fromMs: number, toMs: number) => void;
   onNeedMoreTape?: () => void;
   /** Last `bun run backtest` run. Its closed trades are listed in History, marked as backtest. */
   backtest?: BacktestReport | null;
@@ -50,6 +53,7 @@ export default function Book({
   const [tab, setTab] = useState<Tab>("positions");
   const [allMarkets, setAllMarkets] = useState(false);
   const [showBacktest, setShowBacktest] = useState(true);
+  const [focusedRow, setFocusedRow] = useState<string | null>(null);
 
   const trades = useMemo(() => {
     const rows = [];
@@ -284,8 +288,18 @@ export default function Book({
                 {history.map((lot) => {
                   const sideColor = lot.side === "long" ? "var(--buy-ink)" : "var(--sell-ink)";
                   const pnlColor = lot.pnl >= 0 ? "var(--pnl-pos)" : "var(--pnl-neg)";
+                  const rowKey = `${lot.coin}|${lot.backtest ? "bt" : "bot"}|${lot.key}`;
                   return (
-                    <tr key={`${lot.coin}|${lot.key}`} onClick={() => onSelect(lot.coin)}>
+                    <tr
+                      key={rowKey}
+                      className={rowKey === focusedRow ? styles.rowOn : undefined}
+                      title="클릭하면 차트에서 이 거래 구간을 봅니다"
+                      onClick={() => {
+                        setFocusedRow(rowKey);
+                        if (onFocusTrade) onFocusTrade(lot.coin, lot.openedTs ?? lot.ts, lot.ts);
+                        else onSelect(lot.coin);
+                      }}
+                    >
                       <td title={lot.openedTs ? `진입 ${fmtDateTime(lot.openedTs)}` : undefined}>{fmtDateTime(lot.ts)}</td>
                       <td>{displayCoin(lot.coin)}</td>
                       <td style={{ color: sideColor }}>{SIDE_KO[lot.side] ?? lot.side}</td>

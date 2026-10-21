@@ -13,6 +13,14 @@ export type Candle = {
   close: number;
 };
 
+/** A trade the chart should scroll to. `nonce` changes on every click, so the same row works twice. */
+export type ChartFocus = {
+  coin: string;
+  fromMs: number;
+  toMs: number;
+  nonce: number;
+};
+
 export type FillMark = {
   time: number;
   side: "buy" | "sell";
@@ -194,4 +202,28 @@ export function canUpdateInPlace(prev: SeriesShown, next: SeriesShown): boolean 
     next.count <= prev.count + 1 &&
     next.lastTime >= prev.lastTime
   );
+}
+
+/**
+ * Logical range that shows the bars from `fromSec` to `toSec` (UTC seconds), centered, at
+ * least `minBars` wide. `times` are the view's bar times, ascending. Null when the view
+ * does not reach back to `fromSec` yet.
+ */
+export function focusRange(times: number[], fromSec: number, toSec: number, minBars: number): { from: number; to: number } | null {
+  if (!times.length || fromSec < times[0]!) return null;
+  // The bar holding a time is the last one that starts at or before it.
+  const barAt = (sec: number) => {
+    let lo = 0, hi = times.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (times[mid]! <= sec) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+  const i0 = barAt(fromSec);
+  const i1 = Math.max(i0, barAt(toSec));
+  const span = Math.max(minBars, Math.ceil((i1 - i0 + 1) * 1.5));
+  const mid = (i0 + i1) / 2;
+  return { from: mid - span / 2, to: mid + span / 2 };
 }
