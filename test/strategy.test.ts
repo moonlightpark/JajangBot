@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import type { Ohlc } from "../src/chart";
-import { resolveEmaLen, resolveModel, resolveStrategyExit } from "../src/config";
+import { resolveEmaLen, resolveGaps, resolveModel, resolveStrategyExit } from "../src/config";
 import { StrategyModel, type TradeState } from "../src/model";
-import { emaSeries, MAGINGA, magingaChannel, magingaDecision, magingaLines, SCRIPT_RULES, trackEntries, withLiveBar, type StrategyRules } from "../src/strategy";
+import { closeSize } from "../src/plan";
+import { addGap, emaSeries, MAGINGA, magingaChannel, magingaDecision, magingaLines, SCRIPT_RULES, trackEntries, withLiveBar, type StrategyRules } from "../src/strategy";
 
 const M = 60_000;
 const Q = 15 * M;
@@ -150,6 +151,15 @@ test("StrategyModel mid exit takes profit at the channel middle", async () => {
   expect(await script.decide(withEntry(100.1, "long", 98))).toMatchObject({ intent: "hold" });
 });
 
+test("StrategyModel live take profit closes on the tick price at the far line, with bar close reading", async () => {
+  const live = new StrategyModel(() => flat(200, 100, Q), 15, () => NOW, variant({ onBarClose: true, exitLive: true }));
+  expect(await live.decide(withEntry(101, "long", 99))).toMatchObject({ intent: "hold" });
+  expect(await live.decide(withEntry(101.9, "long", 99))).toMatchObject({ intent: "close", bias: "long" }); // short line ~101.82
+  expect(await live.decide(withEntry(98.1, "short", 101))).toMatchObject({ intent: "close", bias: "short" }); // long line ~98.18
+  const atClose = new StrategyModel(() => flat(200, 100, Q), 15, () => NOW, variant({ onBarClose: true }));
+  expect(await atClose.decide(withEntry(101.9, "long", 99))).toMatchObject({ intent: "hold" }); // waits for the bar
+});
+
 test("StrategyModel onBarClose reads the last closed 15m bar, not the forming one", async () => {
   const bars = withLast(flat(200, 100, Q), { high: 102 }); // bar 199 spikes while forming
   const forming = new StrategyModel(() => bars, 15, () => NOW, variant({}));
@@ -191,7 +201,7 @@ const held = (mid: number, side: "long" | "short", size: number): TradeState =>
 
 test("StrategyModel adds up to twice on the same side, each 50 bars after the last entry", async () => {
   let now = NOW;
-  const m = new StrategyModel(() => flat(200, 100, Q), 15, () => now, variant({ maxAdds: 2, addGapBars: 50 }));
+  const m = new StrategyModel(() => flat(200, 100, Q), 15, () => now, variant({ maxAdds: 2, addGapBars: [50] }));
   expect(await m.decide(state(102, "flat"))).toMatchObject({ intent: "open", bias: "short" }); // entry 1 signal
   expect(await m.decide(held(102, "short", 1))).toMatchObject({ intent: "hold" }); // filled; entry 2 waits 0/50
   now = NOW + 49 * Q;
@@ -209,6 +219,60 @@ test("StrategyModel adds up to twice on the same side, each 50 bars after the la
   expect(await m.decide(held(102, "short", 3))).toMatchObject({ intent: "hold" }); // 3 entries is the most
   expect(await m.decide(held(97, "short", 3))).toMatchObject({ intent: "close", bias: "short" }); // exit as before
   expect(await m.decide(state(102, "flat"))).toMatchObject({ intent: "open", bias: "short" }); // flat: a fresh first entry
+});
+
+test("StrategyModel uses each add's own gap: entry 3 waits 70 bars after entry 2", async () => {
+  let now = NOW;
+  const m = new StrategyModel(() => flat(200, 100, Q), 15, () => now, variant({ maxAdds: 2, addGapBars: [50, 70] }));
+  await m.decide(held(102, "short", 1)); // entry 1 at NOW
+  now = NOW + 50 * Q;
+  expect(await m.decide(held(102, "short", 1))).toMatchObject({ intent: "open", bias: "short" }); // entry 2 after 50
+  await m.decide(held(102, "short", 2)); // filled at NOW + 50 bars
+  now = NOW + 119 * Q;
+  expect(await m.decide(held(102, "short", 2))).toMatchObject({ intent: "hold" }); // 69 of 70 bars
+  now = NOW + 120 * Q;
+  expect(await m.decide(held(102, "short", 2))).toMatchObject({ intent: "open", bias: "short" }); // entry 3 after 70
+});
+
+test("STRATEGY_ADD_GAP_BARS takes one gap or one per add", () => {
+  expect(resolveGaps("G", undefined, [50], 1, 10_000)).toEqual([50]);
+  expect(resolveGaps("G", "60", [50], 1, 10_000)).toEqual([60]);
+  expect(resolveGaps("G", "50, 70", [50], 1, 10_000)).toEqual([50, 70]);
+  expect(() => resolveGaps("G", "50,,70", [50], 1, 10_000)).toThrow();
+  expect(() => resolveGaps("G", "0", [50], 1, 10_000)).toThrow();
+  expect(addGap([50, 70], 2)).toBe(50);
+  expect(addGap([50, 70], 3)).toBe(70);
+  expect(addGap([50, 70], 4)).toBe(70);
+});
+
+test("StrategyModel partial take profit: 70% once at the channel middle after the first entry, then no adds", async () => {
+  let now = NOW;
+  const m = new StrategyModel(() => flat(200, 100, Q), 15, () => now, variant({ partialTp: 0.7, maxAdds: 2, addGapBars: [50] }));
+  expect(await m.decide(held(99.9, "long", 1))).toMatchObject({ intent: "hold" }); // under the middle (~100)
+  const tp = await m.decide(held(100.05, "long", 1));
+  expect(tp).toMatchObject({ intent: "close", bias: "long", closeFraction: 0.7 });
+  expect(await m.decide(held(100.05, "long", 0.3))).toMatchObject({ intent: "hold" }); // trimmed: once only
+  now = NOW + 60 * Q;
+  expect(await m.decide(held(97, "long", 0.3))).toMatchObject({ intent: "hold" }); // long signal, but no add after a trim
+  expect(await m.decide(held(102, "long", 0.3))).toMatchObject({ intent: "close", bias: "long" }); // rest at the short line
+  expect((await m.decide(held(102, "long", 0.3))).closeFraction).toBeUndefined();
+});
+
+test("StrategyModel partial take profit is skipped once an add is in", async () => {
+  let now = NOW;
+  const m = new StrategyModel(() => flat(200, 100, Q), 15, () => now, variant({ partialTp: 0.7, maxAdds: 2, addGapBars: [50] }));
+  await m.decide(held(98, "short", 1));
+  now = NOW + 50 * Q;
+  await m.decide(held(98, "short", 2)); // entry 2 filled
+  expect(await m.decide(held(99.9, "short", 2))).toMatchObject({ intent: "hold" }); // short under the middle: no partial
+});
+
+test("closeSize floors the part to the step and takes it all when a part or the rest is under a step", () => {
+  expect(closeSize(1, 0.7, 0.01)).toBe(0.7);
+  expect(closeSize(0.392, 0.7, 0.001)).toBe(0.274);
+  expect(closeSize(0.001, 0.7, 0.001)).toBe(0.001); // 0.0007 is under a step: all of it
+  expect(closeSize(0.002, 0.7, 0.001)).toBe(0.001);
+  expect(closeSize(0.5, undefined, 0.001)).toBe(0.5);
 });
 
 test("StrategyModel without STRATEGY_MAX_ADDS never adds, as in the script", async () => {

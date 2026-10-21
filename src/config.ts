@@ -77,6 +77,20 @@ export function resolveWhole(name: string, raw: string | undefined, fallback: nu
   return n;
 }
 
+/** "50,70": bars before each add (STRATEGY_ADD_GAP_BARS). One number applies to every add. */
+export function resolveGaps(name: string, raw: string | undefined, fallback: number[], min: number, max: number): number[] {
+  if (!raw?.trim()) return fallback;
+  return raw.split(",").map((part) => resolveWhole(name, part.trim() || "x", 0, min, max));
+}
+
+/** STRATEGY_PARTIAL_TP_PCT: percent of the position, above 0 and below 100. Empty: off. */
+export function resolvePartialTp(raw: string | undefined): number | null {
+  if (!raw?.trim()) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0 || n >= 100) throw new Error("STRATEGY_PARTIAL_TP_PCT must be above 0 and below 100");
+  return n / 100;
+}
+
 export function resolveBybitEnv(raw?: string): BybitEnv {
   const v = (raw ?? "").trim().toLowerCase();
   if (!v || v === "demo") return "demo";
@@ -117,10 +131,13 @@ export const config = {
   strategyStopPct: cap("STRATEGY_STOP_PCT") == null ? null : cap("STRATEGY_STOP_PCT")! / 100,
   strategyExit: resolveStrategyExit(env("STRATEGY_EXIT")),
   strategyOnBarClose: env("STRATEGY_ON_BAR_CLOSE") === "true",
+  strategyExitLive: env("STRATEGY_EXIT_LIVE") === "true",
+  /** Share taken at the channel middle after the first entry (70 -> 0.7). Empty: off. */
+  strategyPartialTp: resolvePartialTp(env("STRATEGY_PARTIAL_TP_PCT")),
   /** Adds (물타기) after the first entry, same side. 0: none, as in the script. */
   strategyMaxAdds: resolveWhole("STRATEGY_MAX_ADDS", env("STRATEGY_MAX_ADDS"), 0, 0, 10),
-  /** 15m bars after an entry before the next add may go in. */
-  strategyAddGapBars: resolveWhole("STRATEGY_ADD_GAP_BARS", env("STRATEGY_ADD_GAP_BARS"), 50, 1, 10_000),
+  /** 15m bars after an entry before the next add may go in, one per add ("50,70"). */
+  strategyAddGapBars: resolveGaps("STRATEGY_ADD_GAP_BARS", env("STRATEGY_ADD_GAP_BARS"), [50], 1, 10_000),
   /** Days of 15m candles loaded at start, so the chart reaches back that far. At least 1000 bars either way. */
   chartDays: Math.max(1, Number(env("CHART_DAYS", "92")) || 92),
   /** typesafe = official TypeSafe API. gateway = Vercel AI Gateway. */

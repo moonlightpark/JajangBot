@@ -38,7 +38,7 @@ function wordOf(event: BlockEvent, kind: Kind): string {
   const d = event.decision;
   if (kind === "late") return LATE_KO;
   if (kind === "hold") return HOLD_KO;
-  if (d?.intent === "close") return "청산";
+  if (d?.intent === "close") return d.closeFraction ? "부분 익절" : "청산";
   if (d?.intent === "open") return "진입";
   if (d?.action === "buy") return SIDE_KO.buy!;
   if (d?.action === "sell") return SIDE_KO.sell!;

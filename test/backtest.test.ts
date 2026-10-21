@@ -110,6 +110,40 @@ test("onBarClose decides only as a 15m bar closes", () => {
   expect(live.trades[0]!.entryTs).toBeLessThan(t0 + 15 * M);
 });
 
+test("exitLive takes a short's profit inside the bar; bar close alone waits for a close below the line", () => {
+  const t0 = WARM * M; // a 15m boundary
+  const rows = [
+    ...calm(WARM),
+    bar(t0, { high: 102, close: 100 }),            // short signal on this bar's close
+    ...calm(16, t0 + M),                            // posted at t0 + 15m, filled the next minute
+    bar(t0 + 17 * M, { low: 97.9, close: 98 }),    // tick price 98 is under the long line ~98.18
+    ...calm(30, t0 + 18 * M),                       // the bar closes back at 100
+  ];
+  const live = runBacktest(rows, { ...opts, onBarClose: true, exitLive: true });
+  expect(live.trades[0]).toMatchObject({ side: "short", exitPx: 98, exitTs: t0 + 18 * M });
+  const atClose = runBacktest(rows, { ...opts, onBarClose: true });
+  expect(atClose.trades[0]!.exitTs).toBeNull();
+});
+
+test("partialTp closes 70% at the channel middle as its own trade and keeps the rest open", () => {
+  const t0 = WARM * M;
+  const rows = [
+    ...calm(WARM),
+    bar(t0, { high: 102, close: 101.9 }),     // short signal, post at 101.9
+    bar(t0 + M, { high: 102, close: 101.9 }), // filled
+    bar(t0 + 2 * M, { close: 99.9 }),         // tick price under the middle (~100): take 70%
+    ...calm(10, t0 + 3 * M),
+  ];
+  const r = runBacktest(rows, { ...opts, partialTp: 0.7 });
+  expect(r.trades).toHaveLength(2);
+  const [part, rest] = r.trades;
+  expect(part).toMatchObject({ side: "short", partial: true, exitPx: 99.9, exitTs: t0 + 3 * M });
+  expect(part!.size).toBeCloseTo(0.274, 9); // 70% of 0.392, floored to the step
+  expect(rest).toMatchObject({ side: "short", exitTs: null, entries: [{ ts: t0 + M, px: 101.9, size: 0.392 }] });
+  expect(rest!.size).toBeCloseTo(0.118, 9);
+  expect(rest!.partial).toBeUndefined();
+});
+
 test("closedNetByCoin sums closed trades after fees and leaves open ones out", async () => {
   const t = (pnlUsd: number, exitTs: number | null) => ({ side: "long" as const, entryTs: 1, entryPx: 1, exitTs, exitPx: 1, size: 1, pnlUsd, feesUsd: 0, maxAdversePct: 0 });
   expect(closedNetByCoin({ tradesByCoin: { BTC: [t(1.5, 2), t(-0.25, 3), t(9, null)], ETH: [] } })).toEqual({ BTC: 1.25, ETH: 0 });
@@ -131,7 +165,7 @@ test("an add 50 bars after the entry averages in, and the trade lists both entri
     bar(t1 + 32 * M, { low: 97, close: 97.5 }), // close below the long line: take short profit
   ];
   const one = orderSize(101.9, opts);
-  const adds = runBacktest(tape, { ...opts, maxAdds: 2, addGapBars: 50 });
+  const adds = runBacktest(tape, { ...opts, maxAdds: 2, addGapBars: [50] });
   expect(adds.trades).toHaveLength(1);
   expect(adds.trades[0]).toMatchObject({ side: "short", exitPx: 97.5, entryTs: t0 + M });
   expect(adds.trades[0]!.entryPx).toBeCloseTo(101.9, 9);
@@ -145,5 +179,5 @@ test("an add 50 bars after the entry averages in, and the trade lists both entri
   expect(script.trades[0]!.size).toBe(one);
   expect(script.trades[0]!.entries).toBeUndefined();
   // Too soon: with a 60-bar gap the second signal (51 bars on) is held.
-  expect(runBacktest(tape, { ...opts, maxAdds: 2, addGapBars: 60 }).trades[0]!.entries).toBeUndefined();
+  expect(runBacktest(tape, { ...opts, maxAdds: 2, addGapBars: [60] }).trades[0]!.entries).toBeUndefined();
 });

@@ -1,6 +1,6 @@
 import { snapToStep } from "./book";
 import type { Ohlc } from "./chart";
-import { liveIntent } from "./plan";
+import { closeSize, liveIntent } from "./plan";
 import { MAGINGA, rearm, strategyCall, type MagingaLines, type MagingaParams, type StrategyRules } from "./strategy";
 import type { BacktestReport, BacktestTrade } from "./types";
 
@@ -56,9 +56,13 @@ export interface BacktestOpts {
   exit?: "opposite" | "mid";
   /** true: read the last closed 15m bar each tick, as the live bot does with STRATEGY_ON_BAR_CLOSE. */
   onBarClose?: boolean;
-  /** Adds (물타기) after the first entry, same side, each `addGapBars` 15m bars after the last. 0: none. */
+  /** true: take profit at the far line on the tick price, without waiting for a bar close. */
+  exitLive?: boolean;
+  /** Share (0.7 = 70%) taken once at the channel middle while only the first entry is in. */
+  partialTp?: number | null;
+  /** Adds (물타기) after the first entry, same side, each its `addGapBars` 15m bars after the last. 0: none. */
   maxAdds?: number;
-  addGapBars?: number;
+  addGapBars?: number[];
 }
 
 
@@ -116,7 +120,7 @@ export function orderSize(px: number, o: Pick<BacktestOpts, "quoteUsd" | "qtySte
  * and asks the same `magingaRule` the live StrategyModel uses.
  *
  * With maxAdds, the side's own entry signal while it is held adds to the position (물타기)
- * once addGapBars 15m bars have passed since the last entry; the entry price averages in.
+ * once that add's addGapBars 15m bars have passed since the last entry; the entry price averages in.
  *
  * Orders follow the live bot: an entry rests post-only at the tick price and fills
  * only if the next minute trades through it (maker fee); a new tick requotes it, a
@@ -131,31 +135,38 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     stopPct: o.stopPct ?? null,
     exit: o.exit ?? "opposite",
     onBarClose: o.onBarClose ?? false,
+    exitLive: o.exitLive ?? false,
+    partialTp: o.partialTp ?? null,
     maxAdds: o.maxAdds ?? 0,
-    addGapBars: o.addGapBars ?? 50,
+    addGapBars: o.addGapBars ?? [50],
   };
   let pending: Pending | null = null;
   type Entry = { ts: number; px: number; size: number };
   /** entryPx is the average over `entries`. */
-  type Pos = { side: "long" | "short"; entryTs: number; entryPx: number; size: number; fee: number; worst: number; entries: Entry[] };
+  type Pos = { side: "long" | "short"; entryTs: number; entryPx: number; size: number; fee: number; worst: number; entries: Entry[]; trimmed?: boolean };
   let pos: Pos | null = null;
-  const entriesOf = (p: Pos) => (p.entries.length > 1 ? { entries: p.entries } : {});
+  // A trimmed position keeps its entries, so the rest still shows the size it opened with.
+  const entriesOf = (p: Pos) => (p.entries.length > 1 || p.trimmed ? { entries: p.entries } : {});
   const trades: BacktestTrade[] = [];
   let realized = 0, fees = 0, peak = 0, maxDd = 0, ticks = 0, missed = 0, stops = 0;
   /** The side a stop just closed: no new entry that way until its signal clears. */
   let blocked: "long" | "short" | null = null;
   let firstTs: number | null = null, lastTs: number | null = null, lastPx = 0;
 
-  const close = (ts: number, px: number) => {
-    const fee = px * pos!.size * o.takerFee;
-    const gross = (pos!.side === "long" ? px - pos!.entryPx : pos!.entryPx - px) * pos!.size;
+  /** Closes `size` of the position (all of it by default). A part is its own trade, with its share of the entry fees. */
+  const close = (ts: number, px: number, size = pos!.size) => {
+    const p = pos!;
+    const part = size < p.size;
+    const entryFee = p.fee * (size / p.size);
+    const fee = px * size * o.takerFee;
+    const gross = (p.side === "long" ? px - p.entryPx : p.entryPx - px) * size;
     realized += gross - fee;
     fees += fee;
     trades.push({
-      side: pos!.side, entryTs: pos!.entryTs, entryPx: pos!.entryPx, ...entriesOf(pos!), exitTs: ts, exitPx: px, size: pos!.size,
-      pnlUsd: gross - pos!.fee - fee, feesUsd: pos!.fee + fee, maxAdversePct: pos!.worst,
+      side: p.side, entryTs: p.entryTs, entryPx: p.entryPx, ...entriesOf(p), exitTs: ts, exitPx: px, size,
+      pnlUsd: gross - entryFee - fee, feesUsd: entryFee + fee, maxAdversePct: p.worst, ...(part ? { partial: true } : {}),
     });
-    pos = null;
+    pos = part ? { ...p, size: p.size - size, fee: p.fee - entryFee, trimmed: true } : null;
   };
 
   for (const b of minutes) {
@@ -214,9 +225,10 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     const side = pos ? pos.side : "flat";
     let intent: "open" | "close" | "hold" = "hold";
     let bias: "long" | "short" = "long";
+    let fraction: number | undefined;
     if (last && Number.isFinite(emaHigh) && Number.isFinite(emaLow)) {
       const lines: MagingaLines = { emaHigh, emaLow, shortLine: emaHigh * (1 + p.shortBand), longLine: emaLow * (1 - p.longBand) };
-      const entries = pos ? { side: pos.side, count: pos.entries.length, lastTs: pos.entries.at(-1)!.ts, size: pos.size } : null;
+      const entries = pos ? { side: pos.side, count: pos.entries.length, lastTs: pos.entries.at(-1)!.ts, size: pos.size, trimmed: pos.trimmed } : null;
       let call = strategyCall(lines, last, side, b.close, pos ? pos.entryPx : null, rules, { entries, now: tickTs, periodMs: p.periodMs });
       if (call.stopped && pos) {
         blocked = pos.side;
@@ -225,6 +237,7 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
       ({ call, blocked } = rearm(blocked, !pos, call));
       intent = liveIntent(side, call.intent);
       bias = call.bias;
+      fraction = call.closeFraction;
     }
 
     if (intent === "open") {
@@ -234,7 +247,7 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     } else {
       if (pending) missed++;
       pending = null;
-      if (intent === "close" && pos) close(tickTs, b.close);
+      if (intent === "close" && pos) close(tickTs, b.close, closeSize(pos.size, fraction, o.qtyStep));
     }
 
     const unrealized = pos ? (pos.side === "long" ? b.close - pos.entryPx : pos.entryPx - b.close) * pos.size : 0;

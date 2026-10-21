@@ -66,12 +66,13 @@ export function fmtCall(d: {
   intent?: string;
   bias?: string;
   leverage?: number | null;
+  closeFraction?: number;
 } | null | undefined): string {
   if (!d) return "";
   // A hold sends no order, so the leverage and bias it came with never got applied.
   if (d.intent === "hold") return HOLD_KO;
   let word = "";
-  if (d.intent && d.bias) word = `${SIDE_KO[d.bias] ?? d.bias} ${INTENT_KO[d.intent] ?? d.intent}`;
+  if (d.intent && d.bias) word = `${SIDE_KO[d.bias] ?? d.bias} ${d.intent === "close" && d.closeFraction ? `${Math.round(d.closeFraction * 100)}% 익절` : INTENT_KO[d.intent] ?? d.intent}`;
   else if (d.action && d.action !== "hold") word = SIDE_KO[d.action] ?? d.action;
   if (!word) return "";
   return d.leverage != null ? `${word} ${d.leverage}x` : word;

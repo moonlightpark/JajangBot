@@ -79,6 +79,8 @@ export interface ModelDecision {
   inputTokens: number;
   /** MODEL=strategy only: the channel lines this call was made against. */
   levels?: StrategyLevels;
+  /** A close of only this share of the position (partial take profit). Left out: all of it. */
+  closeFraction?: number;
 }
 
 export interface Model {
@@ -418,6 +420,8 @@ export const liveStrategy: { params: MagingaParams; rules: StrategyRules } = {
     stopPct: config.strategyStopPct,
     exit: config.strategyExit,
     onBarClose: config.strategyOnBarClose,
+    exitLive: config.strategyExitLive,
+    partialTp: config.strategyPartialTp,
     maxAdds: config.strategyMaxAdds,
     addGapBars: config.strategyAddGapBars,
   },
@@ -429,7 +433,9 @@ export function describeStrategy(s = liveStrategy): string {
   if (s.rules.stopPct) parts.push(`stop ${+(s.rules.stopPct * 100).toFixed(2)}%`);
   if (s.rules.exit !== "opposite") parts.push(`exit ${s.rules.exit}`);
   if (s.rules.onBarClose) parts.push("bar close");
-  if (s.rules.maxAdds) parts.push(`adds ${s.rules.maxAdds} every ${s.rules.addGapBars} bars`);
+  if (s.rules.exitLive) parts.push("live take profit");
+  if (s.rules.partialTp) parts.push(`take ${+(s.rules.partialTp * 100).toFixed(2)}% at middle`);
+  if (s.rules.maxAdds) parts.push(`adds ${s.rules.maxAdds} after ${s.rules.addGapBars.join("/")} bars`);
   return parts.join(", ");
 }
 
@@ -491,6 +497,7 @@ export class StrategyModel implements Model {
       inputTokens: 0,
     });
     if (call.lines) decision.levels = { long: call.lines.longLine, short: call.lines.shortLine, timeframe: p.timeframe };
+    if (intent === "close" && call.closeFraction) decision.closeFraction = call.closeFraction;
     return decision;
   }
 }

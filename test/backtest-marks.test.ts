@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { crosshairLabel, tickLabel, zonedDateTime } from "../web/src/lib/chartTime";
 import { backtestDetail, backtestLots, backtestMarks, backtestOpenPnl, fmtHeld, fmtSize, lotSummary, parseBacktest, roePct } from "../web/src/lib/backtest";
-import { fmtDateTime } from "../web/src/lib/format";
+import { fmtCall, fmtDateTime } from "../web/src/lib/format";
 import type { BacktestTrade } from "../src/types";
 
 const H = 60 * 60 * 1000;
@@ -116,4 +116,18 @@ test("backtestOpenPnl marks open trades at the live price, after the entry fee, 
   expect(backtestOpenPnl(report, { BTC: 98, ETH: null })).toBeCloseTo(3.9 - 0.5, 9);
   expect(backtestOpenPnl({ ...report, tradesByCoin: { SOL: report.tradesByCoin.SOL } }, {})).toBeNull();
   expect(backtestOpenPnl(null, {})).toBeNull();
+});
+
+test("a partial take profit marks only its exit, and the rest keeps the size it opened with", () => {
+  const entries = [{ ts: 0, px: 100, size: 1 }];
+  const part = trade({ side: "long", entryTs: 0, exitTs: H, size: 0.7, pnlUsd: 0.7, partial: true, entries });
+  const rest = trade({ side: "long", entryTs: 0, exitTs: 2 * H, size: 0.3, pnlUsd: 0.6, entries });
+  const marks = backtestMarks([part, rest], "1H", new Set([0, 3600, 7200]));
+  expect(marks.map((m) => m.text)).toEqual(["BT 롱 1", "BT 부분 +$0.70", "BT +$0.60"]);
+  expect(backtestDetail(part, "BTC", 10).rows.some((r) => r.label === "부분 익절")).toBe(true);
+});
+
+test("fmtCall names a partial take profit with its share", () => {
+  expect(fmtCall({ intent: "close", bias: "long", leverage: 15, closeFraction: 0.7 })).toBe("롱 70% 익절 15x");
+  expect(fmtCall({ intent: "close", bias: "short", leverage: 15 })).toBe("숏 청산 15x");
 });

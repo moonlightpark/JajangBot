@@ -73,6 +73,9 @@ export function planQuote(opts: {
   quoteSz: number;
   mid?: number;
   maxPositionUsd?: number | null;
+  /** Close only this share of the position, floored to `qtyStep`. A part that would leave less than one step closes it all. */
+  closeFraction?: number;
+  qtyStep?: number;
 }): QuotePlan | null {
   if (opts.intent === "hold") return null;
   if (opts.intent === "open") {
@@ -87,8 +90,22 @@ export function planQuote(opts: {
     })) return null;
     return { side, size: opts.quoteSz, reduceOnly: false, taker: false };
   }
-  // Close flattens the live book. Long/short is the stance, not which side to reduce.
-  if (opts.positionSz > 0) return { side: "sell", size: opts.positionSz, reduceOnly: true, taker: true };
-  if (opts.positionSz < 0) return { side: "buy", size: -opts.positionSz, reduceOnly: true, taker: true };
-  return null;
+  // Close flattens the live book, or with closeFraction trims it. Long/short is the stance, not which side to reduce.
+  const held = Math.abs(opts.positionSz);
+  if (held === 0) return null;
+  const size = closeSize(held, opts.closeFraction, opts.qtyStep);
+  return { side: opts.positionSz > 0 ? "sell" : "buy", size, reduceOnly: true, taker: true };
+}
+
+/**
+ * How much a close takes: all of `held`, or `fraction` of it floored to `step`. A part under
+ * one step, or one that would leave less than a step, takes it all.
+ */
+export function closeSize(held: number, fraction?: number, step = 0): number {
+  if (!fraction || !(fraction > 0) || fraction >= 1) return held;
+  const raw = held * fraction;
+  const part = step > 0 ? Math.floor(raw / step + 1e-9) * step : raw;
+  const floor = step > 0 ? step : 0;
+  if (part < floor || part <= 0 || held - part < floor - 1e-12 || held - part <= 1e-12) return held;
+  return +part.toFixed(12);
 }

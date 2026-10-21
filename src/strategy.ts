@@ -97,6 +97,8 @@ export interface MagingaCall {
   /** Why: which line was touched, or why it held. */
   reason: string;
   lines: MagingaLines | null;
+  /** A close of only this share of the position (0.7 = 70%). Left out: the whole position. */
+  closeFraction?: number;
 }
 
 /** One decision on the last bar (the forming bar when run every tick). */
@@ -126,13 +128,29 @@ export interface StrategyRules {
   exit: "opposite" | "mid";
   /** true: read the last closed 15m bar, as TradingView does by default. false: the forming bar every tick. */
   onBarClose: boolean;
+  /**
+   * true: take profit at the far line on this tick's price, without waiting for a bar close
+   * (long: price at or above the short line, short: price at or below the long line).
+   * The bar-based exits still apply.
+   */
+  exitLive: boolean;
+  /**
+   * Share of the position (0.7 = 70%) to take profit once, when the tick price reaches the
+   * channel middle while only the first entry is in. The rest exits by the other rules, and
+   * no add goes in after it. null: off.
+   */
+  partialTp: number | null;
   /** Extra entries (물타기) on the same side while a position is open. 0: none, as in the script. */
   maxAdds: number;
-  /** Bars (of the strategy timeframe) after the last entry before the next add may go in. */
-  addGapBars: number;
+  /**
+   * Bars (of the strategy timeframe) after the last entry before the next add may go in, one
+   * per add: [50, 70] means entry 2 waits 50 bars after entry 1, entry 3 waits 70 after entry 2.
+   * The last value repeats for later adds.
+   */
+  addGapBars: number[];
 }
 
-export const SCRIPT_RULES: StrategyRules = { stopPct: null, exit: "opposite", onBarClose: false, maxAdds: 0, addGapBars: 50 };
+export const SCRIPT_RULES: StrategyRules = { stopPct: null, exit: "opposite", onBarClose: false, exitLive: false, partialTp: null, maxAdds: 0, addGapBars: [50] };
 
 /** Entries into the open position: how many filled, and when the last one did. */
 export interface EntryLog {
@@ -141,18 +159,26 @@ export interface EntryLog {
   lastTs: number;
   /** Position size after the last fill, so a bigger size reads as a new entry. */
   size: number;
+  /** The position has shrunk since it opened: the partial take profit is done. */
+  trimmed?: boolean;
 }
 
 /**
  * Updates the log from the position each tick. Flat clears it. A position that grows on
  * the same side is one more entry, stamped `now`. A position found already open (say after
- * a restart) counts as the first entry from `now`, so no add goes in early.
+ * a restart) counts as the first entry from `now`, so no add goes in early. A position
+ * that shrinks on the same side has been partly closed (`trimmed`).
  */
 export function trackEntries(log: EntryLog | null, side: "long" | "short" | "flat", size: number, now: number): EntryLog | null {
   if (side === "flat" || !(size > 0)) return null;
   if (!log || log.side !== side) return { side, count: 1, lastTs: now, size };
   if (size > log.size * (1 + 1e-9)) return { side, count: log.count + 1, lastTs: now, size };
-  return size < log.size ? { ...log, size } : log;
+  return size < log.size * (1 - 1e-9) ? { ...log, size, trimmed: true } : log;
+}
+
+/** Bars entry `n` (2 or more) waits after the entry before it. */
+export function addGap(gaps: number[], n: number): number {
+  return gaps[Math.min(n - 2, gaps.length - 1)] ?? 50;
 }
 
 /** Whole strategy bars from `fromTs` to `now`, counted on bar boundaries. */
@@ -161,12 +187,13 @@ export function barsBetween(fromTs: number, now: number, periodMs: number): numb
 }
 
 /**
- * The full call, live and in the backtest: stop loss first, then the script's lines,
+ * The full call, live and in the backtest: stop loss first, then the live far-line exit,
+ * then the partial take profit at the channel middle, then the script's lines,
  * then the channel-middle exit, then adds. `price` is the price this tick; `last` is the
  * bar the lines are read on (forming, or the last closed one with onBarClose). `entry` is
  * the average entry. `entries` and `now` gate adds: with `maxAdds`, the side's own entry
- * signal while that side is held opens again once `addGapBars` bars have passed since
- * the last entry, up to 1 + maxAdds entries in all.
+ * signal while that side is held opens again once that entry's `addGapBars` bars have
+ * passed since the last entry, up to 1 + maxAdds entries in all.
  */
 export function strategyCall(
   lines: MagingaLines,
@@ -181,6 +208,18 @@ export function strategyCall(
     const hit = side === "long" ? price <= entry * (1 - rules.stopPct) : price >= entry * (1 + rules.stopPct);
     if (hit) return { intent: "close", bias: side, reason: `stop loss ${+(rules.stopPct * 100).toFixed(2)}%`, lines, stopped: true };
   }
+  if (rules.exitLive && side !== "flat" && price > 0) {
+    if (side === "long" && price >= lines.shortLine) return { intent: "close", bias: "long", reason: "price at short line, take long profit now", lines };
+    if (side === "short" && price <= lines.longLine) return { intent: "close", bias: "short", reason: "price at long line, take short profit now", lines };
+  }
+  const trimmed = scale?.entries?.trimmed === true;
+  if (rules.partialTp && side !== "flat" && price > 0 && !trimmed && (scale?.entries?.count ?? 1) === 1) {
+    const mid = (lines.emaHigh + lines.emaLow) / 2;
+    if (side === "long" ? price >= mid : price <= mid) {
+      const pct = +(rules.partialTp * 100).toFixed(2);
+      return { intent: "close", bias: side, reason: `price at channel middle, take ${pct}% of ${side}`, lines, closeFraction: rules.partialTp };
+    }
+  }
   const call = magingaRule(lines, last, side);
   if (rules.exit === "mid" && side !== "flat" && call.intent !== "close") {
     const mid = (lines.emaHigh + lines.emaLow) / 2;
@@ -188,14 +227,15 @@ export function strategyCall(
       return { intent: "close", bias: side, reason: `channel middle, take ${side} profit`, lines };
     }
   }
-  if (side !== "flat" && call.intent === "hold" && rules.maxAdds > 0 && scale) {
+  if (side !== "flat" && call.intent === "hold" && rules.maxAdds > 0 && scale && !trimmed) {
     const again = side === "long" ? last.close < lines.longLine : last.high > lines.shortLine;
     if (again) {
       const n = scale.entries?.count ?? 1;
       const next = n + 1;
       if (n >= 1 + rules.maxAdds) return { ...call, reason: `${side} signal, ${n} entries already (max ${1 + rules.maxAdds})` };
       const since = scale.entries ? barsBetween(scale.entries.lastTs, scale.now, scale.periodMs) : 0;
-      if (since < rules.addGapBars) return { ...call, reason: `${side} signal, entry ${next} waits ${since}/${rules.addGapBars} bars` };
+      const gap = addGap(rules.addGapBars, next);
+      if (since < gap) return { ...call, reason: `${side} signal, entry ${next} waits ${since}/${gap} bars` };
       return { intent: "open", bias: side, reason: `entry ${next} of ${1 + rules.maxAdds}, ${side} signal after ${since} bars`, lines };
     }
   }

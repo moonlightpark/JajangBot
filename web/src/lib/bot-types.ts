@@ -84,6 +84,8 @@ export interface Decision {
   upIn10: number;
   latencyMs: number;
   late: boolean;
+  /** A close of only this share of the position (partial take profit). Left out: all of it. */
+  closeFraction?: number;
 }
 
 export interface Position {
@@ -197,6 +199,8 @@ export interface BacktestTrade {
   feesUsd: number;
   /** Worst move against the average entry while held, in percent. */
   maxAdversePct: number;
+  /** A partial take profit: `size` of the position closed, the rest stayed open as a later trade. */
+  partial?: boolean;
 }
 
 /** GET /backtest: the last `bun run backtest` run (MODEL=strategy rules on past 1m candles). */

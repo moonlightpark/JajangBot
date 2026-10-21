@@ -90,6 +90,8 @@ export class Trader {
           quoteSz,
           mid: book.mid,
           maxPositionUsd: config.maxPositionUsd,
+          closeFraction: decision.closeFraction,
+          qtyStep: 10 ** -this.market.szDecimals,
         });
         if (!plan && decision.intent === "open" && quoteSz > 0) {
           console.log(`${this.market.label} #${block} open held at MAX_POSITION_USD $${config.maxPositionUsd}`);
@@ -330,6 +332,7 @@ export class Trader {
           probabilities: decision.probabilities,
           upIn10: decision.upIn10,
           latencyMs: Math.round(decision.latencyMs),
+          ...(decision.closeFraction ? { closeFraction: decision.closeFraction } : {}),
           late: false,
         },
       quote,

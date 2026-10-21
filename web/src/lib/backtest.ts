@@ -49,7 +49,10 @@ export function backtestMarks(trades: BacktestTrade[], bar: BarSize, candleTimes
   const out: BacktestMark[] = [];
   for (const t of trades) {
     const open = t.exitTs == null ? " 보유중" : "";
-    if (t.entries && t.entries.length > 1) {
+    // A partial take profit shares its entries with the trade that holds the rest; mark them once.
+    if (t.partial) {
+      // no entry marks
+    } else if (t.entries?.length) {
       t.entries.forEach((e, i) => {
         const time = at(e.ts);
         if (!candleTimes.has(time)) return;
@@ -65,7 +68,7 @@ export function backtestMarks(trades: BacktestTrade[], bar: BarSize, candleTimes
     if (t.exitTs == null) continue;
     const exit = at(t.exitTs);
     if (candleTimes.has(exit)) {
-      out.push({ time: exit, kind: "exit", side: t.side, text: `BT ${money(t.pnlUsd)}`, win: t.pnlUsd > 0, trade: t });
+      out.push({ time: exit, kind: "exit", side: t.side, text: `BT ${t.partial ? "부분 " : ""}${money(t.pnlUsd)}`, win: t.pnlUsd > 0, trade: t });
     }
   }
   return out.sort((a, b) => a.time - b.time);
@@ -95,7 +98,7 @@ export function backtestDetail(
     rows.push({ label: "청산", value: `미청산, 현재가 ${fmtPrice(t.exitPx)}` });
     rows.push({ label: "손익", value: `${pnl} (평가)`, tone });
   } else {
-    rows.push({ label: "청산", value: `${fmtTime(t.exitTs)}  ${fmtPrice(t.exitPx)}` });
+    rows.push({ label: t.partial ? "부분 익절" : "청산", value: `${fmtTime(t.exitTs)}  ${fmtPrice(t.exitPx)}` });
     rows.push({ label: "보유", value: fmtHeld(t.exitTs - t.entryTs) });
     rows.push({ label: "손익", value: pnl, tone });
   }
