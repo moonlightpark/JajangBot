@@ -299,7 +299,7 @@ MAX_LEVERAGE=5
 | `AI_GATEWAY_API_KEY` | 비어 있음 | Vercel AI Gateway 키 |
 | `TICK_MS` | `2000` | 판단과 재호가 주기 |
 | `PRICE_MS` | `200` | 차트와 중간가 갱신 주기. Jev를 호출하지 않음 |
-| `BANKROLL_USD` | `500` | dry run 시작 잔액(전체). 코인 수로 똑같이 나눔. 상단 balance는 이 금액에 청산된 백테스트 거래의 손익(`backtest-results/latest.json`, 봇 시작 때 읽음)과 봇의 수수료 뺀 손익을 더한 값이고, 상단 `backtest`에 포함된 금액이 따로 표시됨. 실제 키가 있으면 Bybit 계좌 잔액(백테스트 미포함) |
+| `BANKROLL_USD` | `500` | dry run 시작 잔액(전체). 코인 수로 똑같이 나눔. 상단 balance는 이 금액에 청산된 백테스트 거래의 손익(`backtest-results/latest.json`, 봇 시작 때 읽음)과 봇의 수수료 뺀 손익을 더한 값이고, 상단 `backtest`에 포함된 금액이 따로 표시됨. 백테스트가 끝날 때 열려 있던 포지션은 dry run 봇이 진입 차수, 1차 진입가, 스윙 손절가까지 그대로 이어받아 보유한 채 시작함(그 진입 수수료는 잔액에서 뺌). 실제 키가 있으면 Bybit 계좌 잔액(백테스트 미포함, 이어받지 않음) |
 | `CHART_DAYS` | `92` | 시작할 때 불러오는 15분봉 기간(일). 차트의 15m, 1H, 4H, 1D 화면이 이만큼 과거까지 보임. 1m, 5m은 최근 약 16시간 |
 | `QUOTE_USD` | `40` | 틱당 진입 주문 금액. Bybit 최소 수량보다 작으면 최소 수량으로 주문 |
 | `CLOSE_SLIPPAGE_BPS` | `5` | 청산 주문이 호가를 넘기는 정도 |

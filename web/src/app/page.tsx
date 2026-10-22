@@ -76,8 +76,10 @@ export default function Page() {
   const backtestOpen = useMemo(() => {
     const mids: Record<string, number | null | undefined> = {};
     for (const c of coins) mids[c] = latestByCoin[c]?.mid;
-    return backtestOpenPnl(backtest, mids);
-  }, [backtest, coins, latestByCoin]);
+    // A position the dry run carried on is the bot's now: its PnL is in the balance already.
+    const carried = new Set((feed.meta?.sleeves ?? []).filter((s) => s.carried).map((s) => s.coin));
+    return backtestOpenPnl(backtest, mids, carried);
+  }, [backtest, coins, latestByCoin, feed.meta]);
   const waiting = !feed.meta;
 
   return (

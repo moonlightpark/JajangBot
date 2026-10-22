@@ -160,6 +160,11 @@ export interface SleeveMeta {
   backtestUsd?: number;
   /** Dry run only: this sleeve's share of BANKROLL_USD, before the backtest. Left out with a wallet. */
   startUsd?: number;
+  /**
+   * Dry run only: the backtest's open position the bot started out holding. Its PnL is the
+   * bot's from then on, so it is not counted again as backtest open PnL.
+   */
+  carried?: BacktestOpen;
 }
 
 export interface Meta {
@@ -217,4 +222,34 @@ export interface BacktestReport {
   quoteUsd: number;
   leverageByCoin: Record<string, number>;
   tradesByCoin: Record<string, BacktestTrade[]>;
+  /** The position each coin still held when the run ended, with the strategy's entry state. */
+  openByCoin?: Record<string, BacktestOpen>;
+}
+
+/**
+ * A backtest position still open at the end of the run. A dry run bot starts out holding it,
+ * so its next entry, take profit, or stop follows on from the backtest.
+ */
+export interface BacktestOpen {
+  side: "long" | "short";
+  size: number;
+  /** Average entry. */
+  entryPx: number;
+  /** Entry fees still carried by the open size. */
+  feesUsd: number;
+  /** First entry. */
+  entryTs: number;
+  /** Entry number the strategy counts (restarts at 1 after the first-price take profit). */
+  count: number;
+  /** Last entry, and the one before it. */
+  lastTs: number;
+  prevTs?: number;
+  /** Partly closed since the last restart of the count. */
+  trimmed?: boolean;
+  /** Swing stop level, once the last entry is in. */
+  level?: number;
+  /** First entry's price. */
+  firstPx: number;
+  /** Price of the last first-price take profit. */
+  tpPx?: number;
 }

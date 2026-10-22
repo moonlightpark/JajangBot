@@ -2,7 +2,7 @@ import { snapToStep } from "./book";
 import type { Ohlc } from "./chart";
 import { closeSize, liveIntent } from "./plan";
 import { firstPriceRestart, MAGINGA, rearm, strategyCall, type MagingaLines, type MagingaParams, type StrategyRules } from "./strategy";
-import type { BacktestReport, BacktestTrade } from "./types";
+import type { BacktestOpen, BacktestReport, BacktestTrade } from "./types";
 
 export type { BacktestTrade };
 
@@ -85,6 +85,8 @@ export interface BacktestResult {
   stops: number;
   firstTs: number | null;
   lastTs: number | null;
+  /** The position still open at the end, with the strategy's entry state. */
+  open: BacktestOpen | null;
 }
 
 type Pending = { side: "long" | "short"; price: number; size: number };
@@ -297,5 +299,15 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
       pnlUsd: gross - pos.fee, feesUsd: pos.fee, maxAdversePct: pos.worst,
     });
   }
-  return { ticks, trades, pnlUsd: realized, feesUsd: fees, maxDrawdownUsd: maxDd, missedEntries: missed, stops, firstTs, lastTs };
+  const held = pos as Pos | null;
+  const open: BacktestOpen | null = held && {
+    side: held.side, size: held.size, entryPx: held.entryPx, feesUsd: held.fee, entryTs: held.entryTs,
+    count: held.count, lastTs: held.entries.at(-1)!.ts,
+    ...(held.count >= 2 && held.entries.length >= 2 ? { prevTs: held.entries.at(-2)!.ts } : {}),
+    ...(held.trimmed ? { trimmed: true } : {}),
+    ...(held.level != null ? { level: held.level } : {}),
+    firstPx: held.entries[0]!.px,
+    ...(held.tpPx != null ? { tpPx: held.tpPx } : {}),
+  };
+  return { ticks, trades, pnlUsd: realized, feesUsd: fees, maxDrawdownUsd: maxDd, missedEntries: missed, stops, firstTs, lastTs, open };
 }

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { VenueMarket } from "../src/venue";
-import type { Model, ModelDecision } from "../src/model";
+import type { Model, ModelDecision, TradeState } from "../src/model";
 import { leverageRungs, liveIntent, overPositionCap, parseLeverage, planQuote, quoteAction } from "../src/plan";
 import { jevUnavailable, Trader } from "../src/trader";
 import type { BlockEvent, Book, Quote, Side } from "../src/types";
@@ -201,4 +201,21 @@ test("a dry run reports its own balance: its share of BANKROLL_USD plus PnL afte
   expect(e.accountValue).toBe(100);
   expect(e.withdrawable).toBe(100);
   expect(e.totals.pnlPct).toBe(0);
+});
+
+test("a dry run carrying the backtest's open position decides and marks PnL as holding it", async () => {
+  const seen: TradeState[] = [];
+  const carriedInto: unknown[] = [];
+  class Watching extends ScriptModel {
+    override async decide(state?: TradeState) { if (state) seen.push(state); return super.decide(); }
+    carry(o: unknown) { carriedInto.push(o); }
+  }
+  const model = new Watching();
+  const { trader, events } = desk(model);
+  const open = { side: "short" as const, size: 0.0030000000000000005, entryPx: 101, feesUsd: 0.05, entryTs: 1, count: 2, lastTs: 2, firstPx: 102 };
+  expect(trader.carry(open)).toBe(true);
+  expect(carriedInto).toEqual([open]);
+  await trader.onBlock(1);
+  expect(seen[0]!.position).toMatchObject({ side: "short", size: 0.003, entry: 101 });
+  expect(events.at(-1)!.totals.pnlUsd).toBeCloseTo((101 - 100) * 0.003, 9);
 });

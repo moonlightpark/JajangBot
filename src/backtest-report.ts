@@ -41,6 +41,7 @@ export async function backtestCoins(
       const result = runBacktest(bars, { startTs: start, leverage, quoteUsd: config.quoteUsd, makerFee, takerFee, ...inst, ...liveStrategy.rules }, liveStrategy.params);
       report.leverageByCoin[coin] = leverage;
       report.tradesByCoin[coin] = result.trades;
+      if (result.open) (report.openByCoin ??= {})[coin] = result.open;
       runs.push({ coin, leverage, bars: bars.length, result });
     } catch (e) {
       failed.push({ coin, error: (e as Error).message });

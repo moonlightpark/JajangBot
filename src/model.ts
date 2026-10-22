@@ -4,7 +4,7 @@ import { assertJevCredentials, config } from "./config";
 import { clampLeverage, leverageRungs, liveIntent, parseLeverage, quoteAction, type Bias, type Intent } from "./plan";
 import type { Ohlc } from "./chart";
 import { closedBars, firstPriceRestart, MAGINGA, magingaLines, rearm, strategyCall, swingLevel, trackEntries, withLiveBar, type EntryLog, type MagingaParams, type StrategyRules } from "./strategy";
-import type { Action, Side, StrategyLevels } from "./types";
+import type { Action, BacktestOpen, Side, StrategyLevels } from "./types";
 
 /** What the model sees. Compact, relative, human-readable. */
 export interface TradeState {
@@ -86,6 +86,8 @@ export interface ModelDecision {
 export interface Model {
   readonly name: string;
   decide(state: TradeState): Promise<ModelDecision>;
+  /** Dry run: start out holding the backtest's open position, entry count and all. */
+  carry?(open: BacktestOpen): void;
 }
 
 /** Book, tape, and the open position. Wallet fills and lifetime PnL stay off this object. */
@@ -469,6 +471,16 @@ export class StrategyModel implements Model {
     private strategy = liveStrategy,
   ) {}
 
+  carry(o: BacktestOpen) {
+    this.entries = {
+      side: o.side, count: o.count, lastTs: o.lastTs, size: carriedSize(o.size), firstPx: o.firstPx,
+      ...(o.prevTs != null ? { prevTs: o.prevTs } : {}),
+      ...(o.trimmed ? { trimmed: true } : {}),
+      ...(o.level != null ? { level: o.level } : {}),
+      ...(o.tpPx != null ? { tpPx: o.tpPx } : {}),
+    };
+  }
+
   async decide(state: TradeState): Promise<ModelDecision> {
     const t0 = performance.now();
     const { params: p, rules } = this.strategy;
@@ -529,6 +541,9 @@ export class StrategyModel implements Model {
 }
 
 /** MODEL=mock | jev | strategy. The strategy reads candles from the sleeve's market. */
+/** The backtest's float size, as the trader reports it (8 decimals), so the entry log sees no change. */
+export const carriedSize = (size: number) => Math.round(size * 1e8) / 1e8;
+
 export const createModel = (market?: { bars(bar: "1m" | "15m"): Ohlc[] }): Model => {
   if (config.model === "strategy") {
     if (!market) throw new Error("MODEL=strategy needs the market's candles");

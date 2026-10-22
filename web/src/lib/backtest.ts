@@ -163,12 +163,18 @@ export function parseBacktest(raw: unknown): BacktestReport | null {
 /**
  * Unrealized PnL of the backtest's open trades at the live price, after the entry fee
  * (the backtest's own open-trade PnL). A coin without a live price keeps the PnL the
- * backtest ended with. Null when no trade is open.
+ * backtest ended with. Null when no trade is open. Coins in `skip` (carried on by the
+ * dry run) are left out.
  */
-export function backtestOpenPnl(report: BacktestReport | null, midByCoin: Record<string, number | null | undefined>): number | null {
+export function backtestOpenPnl(
+  report: BacktestReport | null,
+  midByCoin: Record<string, number | null | undefined>,
+  skip: ReadonlySet<string> = new Set(),
+): number | null {
   let sum = 0;
   let any = false;
   for (const [coin, trades] of Object.entries(report?.tradesByCoin ?? {})) {
+    if (skip.has(coin)) continue;
     for (const t of trades) {
       if (t.exitTs != null) continue;
       any = true;

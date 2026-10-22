@@ -1,9 +1,9 @@
 import { config } from "./config";
 import { bpsBetween, snapshotIndicators, venueFeatures } from "./indicators";
-import type { Model, ModelDecision, TradeState } from "./model";
+import { carriedSize, type Model, type ModelDecision, type TradeState } from "./model";
 import { planQuote, type QuotePlan } from "./plan";
 import { aggregateFills, emptySummary, takeLiveFills, takeSimFills, type Resting, type TradeFeed } from "./trades";
-import type { BlockEvent, Book, Fill, PricePoint, Quote, Side, Timing, Totals } from "./types";
+import type { BacktestOpen, BlockEvent, Book, Fill, PricePoint, Quote, Side, Timing, Totals } from "./types";
 import type { VenueMarket } from "./venue";
 
 const emptyTotals = (): Totals => ({
@@ -49,6 +49,19 @@ export class Trader {
 
   get tape(): PricePoint[] {
     return this.market.chartPoints;
+  }
+
+  /**
+   * Dry run: start out holding the backtest's open position, so the strategy's next add,
+   * take profit, or stop follows on from it. The model gets its entry state too.
+   * The caller takes the entry fees off `bankrollUsd`. No-op with a wallet.
+   */
+  carry(open: BacktestOpen): boolean {
+    if (this.market.wallet || !(open.size > 0)) return false;
+    const sz = carriedSize(open.size) * (open.side === "long" ? 1 : -1);
+    this.position = { sz, costUsd: sz * open.entryPx };
+    this.model.carry?.(open);
+    return true;
   }
 
   attachTradeFeed(feed: TradeFeed) {

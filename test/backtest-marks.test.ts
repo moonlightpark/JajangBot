@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { crosshairLabel, tickLabel, zonedDateTime } from "../web/src/lib/chartTime";
 import { backtestDetail, backtestLots, backtestMarks, backtestOpenPnl, fmtHeld, fmtSize, lotSummary, parseBacktest, roePct } from "../web/src/lib/backtest";
 import { fmtCall, fmtDateTime } from "../web/src/lib/format";
-import { withBalance } from "../web/src/lib/fills";
+import { closedLots, withBalance } from "../web/src/lib/fills";
 import type { BacktestTrade } from "../src/types";
 
 const H = 60 * 60 * 1000;
@@ -154,4 +154,27 @@ test("a re-entry after the first-price take profit is marked with its own round"
   const labels = backtestDetail(t, "BTC", 5).rows.map((r) => r.label);
   expect(labels).toContain("2차 재진입");
   expect(labels).toContain("3차 진입");
+});
+
+test("history picks up a carried position: its close is a lot with the backtest's entry and entry fee", () => {
+  const carried = { side: "short" as const, size: 0.003, entryPx: 83000, entryTs: 1_000, feesUsd: 0.06 };
+  const fills = [
+    { key: "a", ts: 5_000, side: "sell" as const, price: 84000, size: 0.003, dir: "open" as const, feeUsd: 0.05 },
+    { key: "b", ts: 9_000, side: "buy" as const, price: 82000, size: 0.006, dir: "close" as const, feeUsd: 0.1 },
+  ];
+  const lots = closedLots(fills, carried);
+  expect(lots).toHaveLength(1);
+  expect(lots[0]).toMatchObject({ side: "short", size: 0.006, openedTs: 1_000, entry: 83500 });
+  expect(lots[0]!.pnl).toBeCloseTo((83500 - 82000) * 0.006, 6);
+  expect(lots[0]!.fee).toBeCloseTo(0.16, 9); // the close fee plus the carried entry fee
+  expect(closedLots(fills.slice(1))).toHaveLength(0); // without it, a close of nothing
+});
+
+test("backtestOpenPnl leaves out a coin the dry run carried on", () => {
+  const report = {
+    from: 0, to: 1, ranAt: 1, quoteUsd: 40, leverageByCoin: {},
+    tradesByCoin: { BTC: [trade({ side: "short", entryPx: 100, size: 2, feesUsd: 0.1 })] },
+  };
+  expect(backtestOpenPnl(report, { BTC: 98 })).toBeCloseTo(3.9, 9);
+  expect(backtestOpenPnl(report, { BTC: 98 }, new Set(["BTC"]))).toBeNull();
 });

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { applyLiveMid } from "./ohlc";
 import type { BlockEvent, ConnectionState, FeedState, Fill, Meta, PricePoint, Quote, SleeveFeed } from "./types";
+import type { BacktestOpen } from "./bot-types";
 
 const CAP = 1000;
 const TAPE_CAP = 200_000;
@@ -313,6 +314,10 @@ function reducer(state: State, action: Action): State {
 
 function parseSleeves(raw: unknown): Meta["sleeves"] {
   if (!Array.isArray(raw)) return [];
+  const isCarried = (c: unknown): c is BacktestOpen => {
+    const o = c as Partial<BacktestOpen> | null;
+    return !!o && (o.side === "long" || o.side === "short") && [o.size, o.entryPx, o.entryTs, o.feesUsd].every((n) => typeof n === "number" && Number.isFinite(n));
+  };
   const out: Meta["sleeves"] = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
@@ -325,6 +330,7 @@ function parseSleeves(raw: unknown): Meta["sleeves"] {
       wallet: typeof s.wallet === "string" ? s.wallet : null,
       ...(typeof s.backtestUsd === "number" && Number.isFinite(s.backtestUsd) ? { backtestUsd: s.backtestUsd } : {}),
       ...(typeof s.startUsd === "number" && Number.isFinite(s.startUsd) ? { startUsd: s.startUsd } : {}),
+      ...(isCarried(s.carried) ? { carried: s.carried } : {}),
     });
   }
   return out;

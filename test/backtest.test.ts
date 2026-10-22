@@ -259,6 +259,23 @@ test("strategyCall retakes only after a re-entry, at the recorded take profit pr
   expect(call(1, 100, 100).intent).toBe("hold"); // the rest alone waits for the re-entry
 });
 
+test("the run hands back the position still open, with the strategy's entry state", () => {
+  const t0 = WARM * M;
+  const dip = (ts: number, px: number) => [bar(ts, { low: px - 0.5, close: px }), bar(ts + M, { low: px - 0.5, close: px })];
+  const rows = [
+    ...calm(WARM),
+    ...dip(t0, 98),                       // entry 1 at 98
+    ...calm(20, t0 + 2 * M),
+    ...dip(t0 + 22 * M, 97.5),            // entry 2
+    bar(t0 + 24 * M, { close: 97.6 }),
+  ];
+  const r = runBacktest(rows, { ...opts, maxAdds: 2, addGapBars: [1], firstPriceTp: 2 / 3 });
+  expect(r.open).toMatchObject({ side: "long", count: 2, firstPx: 98, entryTs: t0 + M, lastTs: t0 + 23 * M, prevTs: t0 + M });
+  expect(r.open!.size).toBeCloseTo(40 / 98 + 40 / 97.5, 2);
+  expect(r.open!.feesUsd).toBeGreaterThan(0);
+  expect(runBacktest(calm(WARM + 5), opts).open).toBeNull();
+});
+
 test("firstPriceRestart counts the rest as entry 1 only after that take profit", () => {
   const rules = { ...SCRIPT_RULES, maxAdds: 2, firstPriceTp: 2 / 3 };
   const log = { side: "long" as const, count: 3, lastTs: 5, size: 1, trimmed: true, prevTs: 3, level: 95, firstPx: 98 };

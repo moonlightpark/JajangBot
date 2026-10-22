@@ -87,8 +87,17 @@ for (const spec of specs) {
       );
       trader.attachTradeFeed(feed.trades);
       const dry = config.dryRun || !hasKeys(spec);
-      const btUsd = dry ? Math.round((backtestNet[spec.coin] ?? 0) * 100) / 100 : 0;
+      // A dry run picks up the backtest's open position where the run ended. Its entry fees
+      // were paid in the backtest, so they come off the balance now; the rest is the bot's PnL.
+      // Only a run that reaches this start: a saved one kept after a failed rerun is stale.
+      const fresh = backtest != null && meta.startedAt - backtest.to < 15 * 60_000;
+      const open = dry && fresh ? backtest.openByCoin?.[spec.coin] : undefined;
+      const carried = open && trader.carry(open) ? open : undefined;
+      const btUsd = dry ? Math.round(((backtestNet[spec.coin] ?? 0) - (carried?.feesUsd ?? 0)) * 100) / 100 : 0;
       trader.bankrollUsd = config.bankrollUsd / specs.length + btUsd;
+      if (carried) {
+        console.log(`${spec.coin} carried the backtest's open ${carried.side} ${carried.size} @ ${carried.entryPx} (entry ${carried.count}, since ${new Date(carried.entryTs).toISOString().slice(0, 16)} UTC)`);
+      }
       market.onVenueFill = (p) => {
         server?.broadcastFill(spec.coin, 0, {
           side: p.side,
@@ -104,6 +113,7 @@ for (const spec of specs) {
       meta.sleeves.push({
         coin: spec.coin, pair: spec.pair, label: spec.label, wallet: market.address, backtestUsd: btUsd,
         ...(dry ? { startUsd: config.bankrollUsd / specs.length } : {}),
+        ...(carried ? { carried } : {}),
       });
       if (spec === first) {
         meta.wallet = market.address;

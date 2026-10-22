@@ -234,6 +234,22 @@ test("StrategyModel uses each add's own gap: entry 3 waits 70 bars after entry 2
   expect(await m.decide(held(102, "short", 2))).toMatchObject({ intent: "open", bias: "short" }); // entry 3 after 70
 });
 
+test("StrategyModel carrying the backtest's open short adds entry 2 once 70 bars have passed since the backtest's entry", async () => {
+  let now = NOW;
+  const m = new StrategyModel(() => flat(200, 100, Q), 15, () => now, variant({ maxAdds: 2, addGapBars: [70] }));
+  // The backtest's entry 1 was 69 bars before the bot started.
+  m.carry({ side: "short", size: 0.0030000000000000005, entryPx: 101, feesUsd: 0.05, entryTs: NOW - 69 * Q, count: 1, lastTs: NOW - 69 * Q, firstPx: 101 });
+  expect(await m.decide(held(102, "short", 0.003))).toMatchObject({ intent: "hold" }); // 69 of 70 bars
+  now = NOW + Q;
+  expect(await m.decide(held(102, "short", 0.003))).toMatchObject({ intent: "open", bias: "short" }); // entry 2, not entry 1
+  await m.decide(held(102, "short", 0.006));
+  now = NOW + 71 * Q;
+  expect(await m.decide(held(102, "short", 0.006))).toMatchObject({ intent: "open", bias: "short" }); // entry 3
+  await m.decide(held(102, "short", 0.009));
+  now = NOW + 200 * Q;
+  expect(await m.decide(held(102, "short", 0.009))).toMatchObject({ intent: "hold" }); // 3 entries is the most
+});
+
 test("STRATEGY_ADD_GAP_BARS takes one gap or one per add", () => {
   expect(resolveGaps("G", undefined, [50], 1, 10_000)).toEqual([50]);
   expect(resolveGaps("G", "60", [50], 1, 10_000)).toEqual([60]);

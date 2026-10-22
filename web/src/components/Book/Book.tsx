@@ -95,7 +95,8 @@ export default function Book({
   const history = useMemo(() => {
     const rows = [];
     for (const coin of scopeCoins) {
-      for (const lot of closedLots(tapeFills(tapeByCoin[coin] ?? []))) {
+      const carried = sleeves.find((s) => s.coin === coin)?.carried;
+      for (const lot of closedLots(tapeFills(tapeByCoin[coin] ?? []), carried)) {
         rows.push({ ...lot, coin, backtest: false });
       }
     }
@@ -105,7 +106,7 @@ export default function Book({
     const shown = showBacktest ? all : all.filter((r) => !r.backtest);
     shown.sort((a, b) => b.ts - a.ts);
     return shown.slice(0, HISTORY_CAP);
-  }, [scopeCoins, tapeByCoin, showBacktest, btLots, startUsd]);
+  }, [scopeCoins, tapeByCoin, showBacktest, btLots, startUsd, sleeves]);
 
   return (
     <section className={styles.wrap}>

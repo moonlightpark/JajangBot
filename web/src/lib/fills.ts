@@ -1,4 +1,4 @@
-import type { PricePoint } from "./bot-types";
+import type { BacktestOpen, PricePoint } from "./bot-types";
 
 export type TapeFill = {
   key: string;
@@ -59,12 +59,20 @@ function markPnl(side: "long" | "short", size: number, entry: number | null, exi
   return side === "long" ? (exit - entry) * size : (entry - exit) * size;
 }
 
-/** Closed lots from the fill tape. One row per close or flip, like a futures position history. */
-export function closedLots(fills: TapeFill[]): ClosedLot[] {
+/** A position held before the first fill (a dry run carrying the backtest's open position). */
+export type CarriedPosition = Pick<BacktestOpen, "side" | "size" | "entryPx" | "entryTs" | "feesUsd">;
+
+/**
+ * Closed lots from the fill tape. One row per close or flip, like a futures position history.
+ * `carried` is the position held before the first fill; its entry fees go to the closes of it.
+ */
+export function closedLots(fills: TapeFill[], carried?: CarriedPosition): ClosedLot[] {
   const sorted = [...fills].sort((a, b) => a.ts - b.ts || a.key.localeCompare(b.key));
-  let pos = 0;
-  let avgEntry: number | null = null;
-  let openedTs: number | null = null;
+  let pos = carried ? (carried.side === "long" ? carried.size : -carried.size) : 0;
+  let avgEntry: number | null = carried ? carried.entryPx : null;
+  let openedTs: number | null = carried ? carried.entryTs : null;
+  let carriedLeft = carried?.size ?? 0;
+  const carriedFeePer = carried && carried.size > 0 ? carried.feesUsd / carried.size : 0;
   const out: ClosedLot[] = [];
 
   const emit = (f: TapeFill, side: "long" | "short", size: number) => {
@@ -73,7 +81,9 @@ export function closedLots(fills: TapeFill[]): ClosedLot[] {
     const pnl = typeof venue === "number" && Number.isFinite(venue)
       ? venue
       : markPnl(side, size, avgEntry, f.price);
-    const fee = typeof f.feeUsd === "number" && Number.isFinite(f.feeUsd) ? f.feeUsd : 0;
+    const fromCarried = Math.min(size, carriedLeft);
+    carriedLeft -= fromCarried;
+    const fee = (typeof f.feeUsd === "number" && Number.isFinite(f.feeUsd) ? f.feeUsd : 0) + fromCarried * carriedFeePer;
     out.push({
       key: `${f.key}|${side}|${size}`,
       ts: f.ts,
