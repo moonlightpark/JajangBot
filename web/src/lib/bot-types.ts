@@ -171,6 +171,12 @@ export interface Meta {
   model: string;
   wallet: string | null;
   dryRun: boolean;
+  /**
+   * The 가상매매 switch: on means no real orders, the backtest then a live dry run.
+   * `toggle` is false when the bot has no ADMIN_TOKEN, so the switch only shows the state.
+   * `keys` is false when no coin has a Bybit key, so turning it off cannot trade for real.
+   */
+  virtual?: { on: boolean; toggle: boolean; keys: boolean };
   market: string;
   startedAt: number;
   venue: string;

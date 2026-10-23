@@ -1,6 +1,7 @@
 import { BACKTEST_LATEST } from "./backtest";
 import { config } from "./config";
 import { liveStrategy } from "./model";
+import { tokenMatches, writeRuntime } from "./runtime";
 import { magingaChannel } from "./strategy";
 import { clipHistory, clipSnapshotTape, clipTape, TAPE_MIDS } from "./snapshot";
 import type { BlockEvent, ChannelPoint, Fill, Meta, PricePoint, Quote } from "./types";
@@ -8,7 +9,12 @@ import type { BlockEvent, ChannelPoint, Fill, Meta, PricePoint, Quote } from "./
 /** 8 significant digits: plenty for a chart line, and a third of the bytes. */
 const sig = (x: number) => Number(x.toPrecision(8));
 
-const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "*" };
+// "*" does not cover Authorization, which the 가상매매 switch sends.
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "authorization, content-type",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+};
 const SNAP_MS = 400;
 
 const json = (body: unknown, status = 200) =>
@@ -46,8 +52,31 @@ async function backtestReport(req: Request): Promise<Response> {
   return jsonMaybeGzip(req, await file.text());
 }
 
-/** GET /snapshot, GET /history, GET /tape, GET /backtest, GET /levels, GET /events SSE */
-export function startServer(meta: Meta, sleeves: SleeveView[]) {
+/**
+ * POST /virtual {on}: the dashboard's 가상매매 switch. Needs `Authorization: Bearer <ADMIN_TOKEN>`.
+ * The setting goes to .runtime.json and the bot exits; systemd (Restart=always) starts it again,
+ * so a switch to on reruns the backtest and carries on as a live dry run.
+ */
+async function setVirtual(req: Request, meta: Meta, restart: () => void): Promise<Response> {
+  if (!config.adminToken) return json({ error: "ADMIN_TOKEN is not set on the bot" }, 403);
+  const given = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  if (!tokenMatches(config.adminToken, given)) {
+    await Bun.sleep(1000);
+    return json({ error: "wrong password" }, 401);
+  }
+  const body = (await req.json().catch(() => null)) as { on?: unknown } | null;
+  if (typeof body?.on !== "boolean") return json({ error: "body must be {\"on\": true|false}" }, 400);
+  if (!body.on && !meta.virtual?.keys) return json({ error: "no Bybit API key, so the bot cannot trade for real" }, 409);
+  if (body.on === config.dryRun) return json({ on: body.on, restarting: false });
+  writeRuntime({ dryRun: body.on });
+  console.log(`가상매매 ${body.on ? "on" : "off"} from the dashboard, restarting`);
+  // Let the reply go out first.
+  setTimeout(restart, 300);
+  return json({ on: body.on, restarting: true });
+}
+
+/** GET /snapshot, GET /history, GET /tape, GET /backtest, GET /levels, GET /events SSE, POST /virtual */
+export function startServer(meta: Meta, sleeves: SleeveView[], restart: () => void = () => process.exit(0)) {
   const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
   const enc = new TextEncoder();
   const send = (c: ReadableStreamDefaultController<Uint8Array>, type: string, data: unknown) => {
@@ -116,6 +145,7 @@ export function startServer(meta: Meta, sleeves: SleeveView[]) {
       if (pathname === "/tape") return jsonMaybeGzip(req, tapeByCoin());
       if (pathname === "/backtest") return backtestReport(req);
       if (pathname === "/levels") return jsonMaybeGzip(req, levelsByCoin());
+      if (pathname === "/virtual" && req.method === "POST") return setVirtual(req, meta, restart);
       if (pathname === "/events") {
         const lite = url.searchParams.get("lite") === "1";
         const stream = new ReadableStream<Uint8Array>({

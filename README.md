@@ -282,7 +282,8 @@ MAX_LEVERAGE=5
 | `BYBIT_ENV` | `demo` | `demo`, `testnet`, `mainnet` |
 | `BYBIT_API_KEY`, `BYBIT_API_SECRET` | 비어 있음 | 첫 번째 코인의 서브계정 키. 비어 있으면 dry run |
 | `BYBIT_KEYS_JSON` | 비어 있음 | 나머지 코인의 키(`.bybit-keys.json`과 같은 형식) |
-| `DRY_RUN` | `false` | `true`면 모든 슬리브를 시뮬레이션 |
+| `DRY_RUN` | `false` | `true`면 모든 슬리브를 시뮬레이션. 대시보드 가상매매 스위치를 쓰면 `.runtime.json` 값이 우선 |
+| `ADMIN_TOKEN` | 비어 있음 | 대시보드 상단 가상매매 On/Off 스위치의 관리자 비밀번호. 비우면 스위치는 상태만 표시. 바꾸면 봇이 설정을 저장하고 재시작(systemd가 다시 띄움). On이면 실제 주문 없이 백테스트 후 실시간 가상매매 |
 | `MODEL` | `mock` | `mock`, `jev`, `strategy`. `jev`는 TypeSafe 또는 Gateway 키 필요 |
 | `STRATEGY_LEVERAGE` | `3` | `MODEL=strategy`의 진입 레버리지 |
 | `STRATEGY_EMA_LEN` | `125` | 채널 EMA 길이 |

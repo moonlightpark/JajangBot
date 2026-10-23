@@ -1,3 +1,5 @@
+import { readRuntime, resolveDryRun } from "./runtime";
+
 const env = (key: string, fallback?: string) => process.env[key] ?? fallback;
 
 export type JevProvider = "typesafe" | "gateway";
@@ -121,7 +123,10 @@ export const config = {
   priceMs: Math.max(50, Number(env("PRICE_MS", "200"))),
   /** Bybit fills have no public tx, so there is no explorer link. */
   explorerTx: "",
-  dryRun: env("DRY_RUN") === "true",
+  /** The dashboard's 가상매매 switch (.runtime.json) when it was used, else DRY_RUN. */
+  dryRun: resolveDryRun(env("DRY_RUN"), readRuntime()),
+  /** Password for the dashboard's 가상매매 switch. Empty: the switch only shows the state. */
+  adminToken: env("ADMIN_TOKEN", "")!.trim(),
   /** Target notional of one post-only quote. */
   quoteUsd: Number(env("QUOTE_USD", "40")),
   quoteInsideTicks: Number(env("QUOTE_INSIDE_TICKS", "1")),

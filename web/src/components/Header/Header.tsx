@@ -2,8 +2,10 @@
 
 import { fmtSignedUsd, fmtUsd } from "@/lib/format";
 import type { TradingMode } from "@/lib/mode";
+import type { Meta } from "@/lib/types";
 import { Bone } from "@/components/Skeleton/Skeleton";
 import styles from "./Header.module.css";
+import VirtualSwitch from "./VirtualSwitch";
 
 export interface HeaderProps {
   connection: "connecting" | "live" | "reconnecting";
@@ -18,6 +20,10 @@ export interface HeaderProps {
   mode: TradingMode | null;
   /** Who makes the call: Jev, 모의 모델, or TradingView 전략. */
   decider: string | null;
+  /** Bot API base, for the 가상매매 switch. */
+  apiUrl: string;
+  /** Null until meta arrives. */
+  meta: Pick<Meta, "dryRun" | "virtual" | "network" | "startedAt"> | null;
 }
 
 function Score({
@@ -42,7 +48,7 @@ function Score({
   );
 }
 
-export default function Header({ connection, balance, unrealized, realized, backtest = null, backtestOpen = null, mode, decider }: HeaderProps) {
+export default function Header({ connection, balance, unrealized, realized, backtest = null, backtestOpen = null, mode, decider, apiUrl, meta }: HeaderProps) {
   const live = connection === "live";
   const label = !live ? "연결 끊김" : mode ? mode.label : "연결 중";
 
@@ -62,6 +68,7 @@ export default function Header({ connection, balance, unrealized, realized, back
         {live && mode ? <span className={styles.statusDetail}>{mode.detail}</span> : null}
         {live && decider ? <span className={styles.decider} data-jev={decider === "Jev" ? "true" : "false"}>{decider} 판단</span> : null}
       </span>
+      {live ? <VirtualSwitch apiUrl={apiUrl} meta={meta} /> : null}
       <span className={styles.scores}>
         <Score label="잔고" value={balance} signed={false} />
         {backtest != null ? (

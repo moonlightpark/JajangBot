@@ -1,6 +1,6 @@
 # Bot 작업 로그
 
-## 다음 작업 시작하기 (인수인계, 2026-10-21 기준)
+## 다음 작업 시작하기 (인수인계, 2026-10-23 기준)
 
 이 섹션만 읽으면 이어서 작업할 수 있게 정리했습니다. 작업이 끝날 때마다 이 섹션과 아래 작업 기록을 함께 갱신합니다.
 
@@ -41,7 +41,8 @@
 | History 탭 | 봇 거래와 백테스트 거래(3개월)를 함께 표시, Source 열로 구분 (31번) |
 | dry run 잔액 | 시작 $10000(`BANKROLL_USD`, 56번. 64번부터 BTC 하나라 BTC에 전액) + 청산된 백테스트 손익 + 봇 손익(수수료 뺌). 상단 balance, backtest에 표시 (32, 33번). 미청산 백테스트 포지션은 "백테스트 평가손익"으로 따로 표시, 잔고에 미포함 (57번) | 85번부터 백테스트의 미청산 포지션을 dry run 봇이 이어받음(`carried`).
 | Jev 비교 | `bun run start:jev`(:3002, dry run), `bun run dev:web:jev`(:3003), `bun run compare`. Jev 키가 없어 아직 Jev 실행 안 함 (35번) |
-| 테스트 | `bun test` 151개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
+| 가상매매 스위치 | 상단 메뉴바 "가상매매 On/Off"(88번). 관리자 비밀번호(`ADMIN_TOKEN`) 필요, 바꾸면 `.runtime.json`에 저장하고 봇 재시작. 서버에는 아직 `ADMIN_TOKEN`과 Bybit 키가 없어 상태만 표시 |
+| 테스트 | `bun test` 155개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
 | 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 86번까지 커밋 푸시, 서버 배포와 서버 `.env` `STRATEGY_RETAKE_TP=50` 적용 완료) |
 | 서버 배포 | `220.76.214.201`(Ubuntu 24.04, 사용자 `mineos`, shipgo와 같이 쓰는 서버). `~/jevtrade`에서 systemd `jevtrade-bot`(:3000), `jevtrade-web`(:3001), 둘 다 127.0.0.1에만 바인딩. nginx가 `www.gpurent.io`, `api.gpurent.io`를 HTTPS로 연결, 인증서 자동 갱신 (43, 44번) |
 | 자동 배포 | `.github/workflows/deploy.yml`: main에 push하면 `bun test` 후 SSH로 `deploy/deploy.sh` 실행. Secrets 4개 등록 완료. (43, 45번) |
@@ -1148,6 +1149,7 @@ README.md 전체를 한글로 다시 작성했습니다. 기존 내용에 더해
 - [x] 42~44번 커밋, push (45번)
 - [x] DNS 연결과 HTTPS 인증서 (44번)
 - [ ] 서버 sudo 비밀번호 변경 권장 (대화에 평문으로 공유됨)
+- [ ] 88번 커밋, 배포 후 서버 `.env`에 `ADMIN_TOKEN` 설정(사용자가 직접 정한 비밀번호). 실제 주문으로 끄려면 서버에 Bybit 키도 필요
 
 - [ ] Bybit 데모 서브계정 키로 실제 주문 경로 검증: 주문 생성, 정정, 취소, 레버리지 설정, 비공개 웹소켓 인증, 체결 수신
 - [ ] 배포된 데모(https://www.jev-trade.com/)의 봇을 Bybit 설정으로 다시 배포
@@ -1583,3 +1585,25 @@ $1000 때와 같은 흐름: 부분 익절을 켜면 손실, 끄면 이익. 격�
 
 - 84~85번(분석 기록, 백테스트 미청산 포지션 이어받기)을 커밋해 `origin/main`에 push. 커밋 전 `bun test` 151개 통과. 서버 `.env` 변경 없음.
 - 재시작으로 서버 봇이 들고 있던 dry run 숏(10-21 23:31, 0.003 @ 83960.7, 18:13 익절을 2.5분 판단 주기 때문에 놓친 것)은 사라지고, 백테스트 끝 상태에서 다시 시작.
+
+### 87. 서버 .env를 로컬과 같게
+
+**요청**: 서버 `.env`도 로컬 `.env`와 동일하게 설정.
+
+- 키 이름으로 비교(비밀값은 출력하지 않음). 다른 항목: `DRY_RUN`(로컬 true, 서버 false), `MAX_LEVERAGE`(5, 20), `QUOTE_USD`(800, 300), `BYBIT_API_KEY`/`SECRET`(로컬만 있음), `HOST`(서버만 127.0.0.1).
+- 서버에 `DRY_RUN=true`, `MAX_LEVERAGE=5`, `QUOTE_USD=800` 적용하고 재시작. 백업 `~/jevtrade/.env.bak-20261022`.
+- 그대로 둔 것: Bybit 키(로컬도 `DRY_RUN=true`라 키를 쓰지 않으므로 서버에 비밀값을 복사하지 않음), `HOST=127.0.0.1`(서버는 nginx 뒤에서 외부에 직접 열리지 않게 하는 설정).
+- 시작 로그: `DRY RUN, balance $10225.02 (start $10000.00 + backtest $225.02)`, 주문금액 $800 기준 백테스트. 이어받은 포지션 없음.
+
+## 2026-10-23
+
+### 88. 상단 메뉴바에 가상매매 On/Off 스위치
+
+**요청**: 상단 메뉴바에 토글 스위치로 가상매매 On/Off. On이면 실제 거래 없이 백테스트 후 실시간 가상매매를 계속.
+
+- 봇: `src/runtime.ts`(`.runtime.json`, gitignore). `config.dryRun`은 이 파일 값이 있으면 그것, 없으면 `DRY_RUN`. `POST /virtual {on}`은 `Authorization: Bearer <ADMIN_TOKEN>` 필요(sha256 후 상수시간 비교, 틀리면 1초 지연 후 401). `ADMIN_TOKEN`이 없으면 403, 키 없이 끄려 하면 409, 값이 같으면 재시작 안 함. 저장 후 0.3초 뒤 `process.exit(0)`, systemd `Restart=always`가 다시 띄워 백테스트부터 다시 시작. CORS에 `authorization` 헤더와 POST 허용.
+- meta에 `virtual: {on, toggle, keys}` 추가(`src/types.ts`, `web/src/lib/bot-types.ts` 동일).
+- 대시보드: `web/src/components/Header/VirtualSwitch.tsx`. 상태 표시 옆 스위치(On 초록, Off 파랑 글씨). 누르면 안내 문구, 관리자 비밀번호 입력, 확인/취소 패널. 성공하면 비밀번호를 브라우저 localStorage에 저장, 봇의 시작 시각이 바뀔 때까지 "재시작 중". 켤 때 "지금 가진 실제 포지션은 정리되지 않습니다" 안내.
+- 로컬은 `bun run start`라 끄면 봇이 종료만 되고 다시 뜨지 않음(서버는 systemd가 재시작).
+- 확인: 로컬에서 임시 비밀번호로 401, 같은 값 200(재시작 없음), 잘못된 본문 400, OPTIONS 헤더 확인. 브라우저에서 스위치와 패널 확인. 실제로 끄는 동작은 실행하지 않음(로컬이 데모 실주문으로 바뀌므로).
+- 테스트 `test/runtime.test.ts` 4개 추가, 155개 통과. 타입 오류는 기존 5개 그대로.

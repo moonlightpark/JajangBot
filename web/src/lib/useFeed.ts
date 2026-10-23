@@ -342,12 +342,19 @@ function parseNetwork(raw: Record<string, unknown>): Meta["network"] {
   return n === "testnet" || n === "demo" ? n : "mainnet";
 }
 
+function parseVirtual(v: unknown): Meta["virtual"] | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  return { on: o.on === true, toggle: o.toggle === true, keys: o.keys === true };
+}
+
 function parseMeta(raw: Record<string, unknown> | null): Meta | null {
   if (!raw) return null;
   return {
     model: typeof raw.model === "string" ? raw.model : "",
     wallet: typeof raw.wallet === "string" ? raw.wallet : null,
     dryRun: Boolean(raw.dryRun),
+    ...(parseVirtual(raw.virtual) ? { virtual: parseVirtual(raw.virtual)! } : {}),
     market: typeof raw.market === "string" ? raw.market : "BTC-USDT",
     startedAt: typeof raw.startedAt === "number" ? raw.startedAt : Date.now(),
     venue: typeof raw.venue === "string" ? raw.venue : "bybit",

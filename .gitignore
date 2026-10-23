@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 .bybit-keys.json
+# The dashboard's 가상매매 switch
+.runtime.json
 
 node_modules
 *.log

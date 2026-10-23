@@ -93,6 +93,8 @@ export default function Page() {
         backtestOpen={hasBooks ? backtestOpen : null}
         mode={meta ? tradingMode(meta, meta.wallet) : null}
         decider={meta ? deciderLabel(meta.model) : null}
+        apiUrl={API_URL}
+        meta={feed.meta}
       />
       <div className={styles.main}>
         <div className={styles.left}>

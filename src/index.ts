@@ -24,6 +24,7 @@ const meta: Meta = {
   model: config.model,
   wallet: null,
   dryRun: config.dryRun || specs.every((s) => !hasKeys(s)),
+  virtual: { on: config.dryRun, toggle: !!config.adminToken, keys: specs.some(hasKeys) },
   market: first.pair,
   startedAt: Date.now(),
   venue: config.venue,
