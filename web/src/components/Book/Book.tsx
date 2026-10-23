@@ -42,6 +42,7 @@ export default function Book({
   onNeedMoreTape,
   backtest = null,
   waiting = false,
+  height,
 }: {
   sleeves: SleeveMeta[];
   latestByCoin: Record<string, BlockEvent | null>;
@@ -55,6 +56,8 @@ export default function Book({
   /** Last `bun run backtest` run. Its closed trades are listed in History, marked as backtest. */
   backtest?: BacktestReport | null;
   waiting?: boolean;
+  /** Set by dragging the bar above the panel. Unset: the stylesheet's height. */
+  height?: number | null;
 }) {
   const [tab, setTab] = useState<Tab>("positions");
   const [allMarkets, setAllMarkets] = useState(false);
@@ -109,7 +112,7 @@ export default function Book({
   }, [scopeCoins, tapeByCoin, showBacktest, btLots, startUsd, sleeves]);
 
   return (
-    <section className={styles.wrap}>
+    <section className={styles.wrap} data-book style={height != null ? { height } : undefined}>
       <div className={styles.tabs} role="tablist" aria-label="계좌 내역">
         <button
           type="button"

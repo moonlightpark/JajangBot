@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Book from "@/components/Book/Book";
+import BookSplitter, { useBookHeight } from "@/components/Book/BookSplitter";
 import DecisionPanel from "@/components/DecisionPanel/DecisionPanel";
 import Feed from "@/components/Feed/Feed";
 import FlowChart from "@/components/FlowChart/FlowChart";
@@ -81,9 +82,11 @@ export default function Page() {
     return backtestOpenPnl(backtest, mids, carried);
   }, [backtest, coins, latestByCoin, feed.meta]);
   const waiting = !feed.meta;
+  const shellRef = useRef<HTMLDivElement>(null);
+  const bookHeight = useBookHeight(shellRef);
 
   return (
-    <div className="shell">
+    <div className="shell" ref={shellRef}>
       <Header
         connection={feed.connection}
         balance={hasBooks ? balance : null}
@@ -96,7 +99,7 @@ export default function Page() {
         apiUrl={API_URL}
         meta={feed.meta}
       />
-      <div className={styles.main}>
+      <div className={styles.main} data-main>
         <div className={styles.left}>
           <div className={styles.chartWrap}>
             <FlowChart
@@ -116,7 +119,9 @@ export default function Page() {
           <Feed events={sleeve.events} meta={meta} waiting={waiting} />
         </div>
       </div>
+      <BookSplitter onResize={bookHeight.set} current={bookHeight.current} />
       <Book
+        height={bookHeight.height}
         sleeves={feed.meta?.sleeves ?? []}
         latestByCoin={latestByCoin}
         tapeByCoin={tapeByCoin}

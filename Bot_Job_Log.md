@@ -43,7 +43,7 @@
 | Jev 비교 | `bun run start:jev`(:3002, dry run), `bun run dev:web:jev`(:3003), `bun run compare`. Jev 키가 없어 아직 Jev 실행 안 함 (35번) |
 | 가상매매 스위치 | 상단 메뉴바 "가상매매 On/Off"(88번). 관리자 비밀번호(`ADMIN_TOKEN`) 필요, 바꾸면 `.runtime.json`에 저장하고 봇 재시작. 서버에 `ADMIN_TOKEN`과 Bybit 데모 키 설정 완료(90번), 지금 On |
 | 테스트 | `bun test` 155개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
-| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 91번까지 커밋 푸시(faa1548), 서버 배포와 서버 `.env` `STRATEGY_RETAKE_TP=50` 적용 완료) |
+| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 93번까지 커밋 푸시(942aa86), 서버 배포와 서버 `.env` `STRATEGY_RETAKE_TP=50` 적용 완료) |
 | 서버 배포 | `220.76.214.201`(Ubuntu 24.04, 사용자 `mineos`, shipgo와 같이 쓰는 서버). `~/jevtrade`에서 systemd `jevtrade-bot`(:3000), `jevtrade-web`(:3001), 둘 다 127.0.0.1에만 바인딩. nginx가 `www.gpurent.io`, `api.gpurent.io`를 HTTPS로 연결, 인증서 자동 갱신 (43, 44번) |
 | 자동 배포 | `.github/workflows/deploy.yml`: main에 push하면 `bun test` 후 SSH로 `deploy/deploy.sh` 실행. Secrets 4개 등록 완료. (43, 45번) |
 | 미검증 | 실제 키로 주문하는 경로 전체 |
@@ -1637,3 +1637,16 @@ $1000 때와 같은 흐름: 부분 익절을 켜면 손실, 끄면 이익. 격�
 **요청**: 리스트 제목 수량 -> 수량/주문금액.
 
 - `web/src/components/Book/Book.tsx`: 포지션 탭과 거래기록 탭(로딩 중 표 포함)의 열 제목 변경. 두 탭 모두 금액을 함께 표시하므로 같이 바꿈. 체결 탭은 수량만 표시하므로 그대로.
+
+### 94. 92~93번 커밋, push, 서버 배포
+
+- 커밋 `942aa86`, GitHub Actions 배포 성공. 서버 봇 재시작 후 가상매매 On, 웹 200.
+
+### 95. 하단(포지션 / 체결 / 거래기록) 영역 크기 조절
+
+**요청**: 하단 영역과 차트 영역의 크기를 조절할 수 있게.
+
+- `web/src/components/Book/BookSplitter.tsx`: 차트와 하단 사이 7px 막대(가운데 손잡이). 위아래로 드래그, 포커스 후 위/아래 화살표(24px씩), 더블클릭하면 기본 220px.
+- 최소 120px, 차트 행은 최소 200px 남김. 높이는 브라우저 localStorage(`jevtrade.bookHeight`)에 저장, 다시 열 때 창 크기에 맞춰 줄임.
+- `Book`에 `height` prop과 `data-book`, 하단 위 테두리는 막대가 대신함.
+- 브라우저 확인: 드래그로 220 → 607px, 끝까지 올리면 차트 200px에서 멈춤, 새로고침 후 유지, 더블클릭으로 220px.

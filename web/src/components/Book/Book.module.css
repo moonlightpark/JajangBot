@@ -5,7 +5,6 @@
   height: 220px;
   min-height: 180px;
   overflow: hidden;
-  border-top: 1px solid var(--border);
   background: var(--panel);
 }
 
@@ -157,4 +156,33 @@
   border-bottom: 1px solid var(--border);
   font: 400 12px var(--font-sans);
   color: var(--ink-2);
+}
+
+/* Drag bar between the chart and the panel. */
+.splitter {
+  flex: none;
+  height: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.splitter:hover,
+.splitter:focus-visible,
+.splitter[data-active="true"] {
+  background: var(--border);
+  outline: none;
+}
+
+.splitterGrip {
+  width: 36px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--muted);
+  opacity: 0.6;
 }
