@@ -226,7 +226,11 @@ export default function Book({
                   >
                     <td>{displayCoin(sleeve.coin)}</td>
                     <td style={sideColor ? { color: sideColor } : undefined}>{side}</td>
-                    <td>{open ? fmtCoin(pos!.size, sleeve.coin, 4) : "-"}</td>
+                    <td>
+                      {open
+                        ? `${fmtCoin(pos!.size, sleeve.coin, 4)}${pos?.entryPrice != null && pos.entryPrice > 0 ? ` / $${Math.round(pos.size * pos.entryPrice).toLocaleString("en-US")}` : ""}`
+                        : "-"}
+                    </td>
                     <td>{open && pos?.entryPrice != null ? fmtPrice(pos.entryPrice) : "-"}</td>
                     <td>{mark != null ? fmtPrice(mark) : "-"}</td>
                     <td>{value != null ? fmtPrice(value) : "-"}</td>

@@ -41,9 +41,9 @@
 | History 탭 | 봇 거래와 백테스트 거래(3개월)를 함께 표시, Source 열로 구분 (31번) |
 | dry run 잔액 | 시작 $10000(`BANKROLL_USD`, 56번. 64번부터 BTC 하나라 BTC에 전액) + 청산된 백테스트 손익 + 봇 손익(수수료 뺌). 상단 balance, backtest에 표시 (32, 33번). 미청산 백테스트 포지션은 "백테스트 평가손익"으로 따로 표시, 잔고에 미포함 (57번) | 85번부터 백테스트의 미청산 포지션을 dry run 봇이 이어받음(`carried`).
 | Jev 비교 | `bun run start:jev`(:3002, dry run), `bun run dev:web:jev`(:3003), `bun run compare`. Jev 키가 없어 아직 Jev 실행 안 함 (35번) |
-| 가상매매 스위치 | 상단 메뉴바 "가상매매 On/Off"(88번). 관리자 비밀번호(`ADMIN_TOKEN`) 필요, 바꾸면 `.runtime.json`에 저장하고 봇 재시작. 서버에는 아직 `ADMIN_TOKEN`과 Bybit 키가 없어 상태만 표시 |
+| 가상매매 스위치 | 상단 메뉴바 "가상매매 On/Off"(88번). 관리자 비밀번호(`ADMIN_TOKEN`) 필요, 바꾸면 `.runtime.json`에 저장하고 봇 재시작. 서버에 `ADMIN_TOKEN`과 Bybit 데모 키 설정 완료(90번), 지금 On |
 | 테스트 | `bun test` 155개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
-| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 86번까지 커밋 푸시, 서버 배포와 서버 `.env` `STRATEGY_RETAKE_TP=50` 적용 완료) |
+| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 88번까지 커밋 푸시(95def6f), 서버 배포와 서버 `.env` `STRATEGY_RETAKE_TP=50` 적용 완료) |
 | 서버 배포 | `220.76.214.201`(Ubuntu 24.04, 사용자 `mineos`, shipgo와 같이 쓰는 서버). `~/jevtrade`에서 systemd `jevtrade-bot`(:3000), `jevtrade-web`(:3001), 둘 다 127.0.0.1에만 바인딩. nginx가 `www.gpurent.io`, `api.gpurent.io`를 HTTPS로 연결, 인증서 자동 갱신 (43, 44번) |
 | 자동 배포 | `.github/workflows/deploy.yml`: main에 push하면 `bun test` 후 SSH로 `deploy/deploy.sh` 실행. Secrets 4개 등록 완료. (43, 45번) |
 | 미검증 | 실제 키로 주문하는 경로 전체 |
@@ -1149,7 +1149,9 @@ README.md 전체를 한글로 다시 작성했습니다. 기존 내용에 더해
 - [x] 42~44번 커밋, push (45번)
 - [x] DNS 연결과 HTTPS 인증서 (44번)
 - [ ] 서버 sudo 비밀번호 변경 권장 (대화에 평문으로 공유됨)
-- [ ] 88번 커밋, 배포 후 서버 `.env`에 `ADMIN_TOKEN` 설정(사용자가 직접 정한 비밀번호). 실제 주문으로 끄려면 서버에 Bybit 키도 필요
+- [x] 88번 커밋, 배포 (89번)
+- [x] 서버 `.env`에 `ADMIN_TOKEN` 설정 (90번)
+- [ ] 서버 `ADMIN_TOKEN`을 더 긴 비밀번호로 바꾸기 권장(지금 9자, 공개 API라 병렬 대입 가능)
 
 - [ ] Bybit 데모 서브계정 키로 실제 주문 경로 검증: 주문 생성, 정정, 취소, 레버리지 설정, 비공개 웹소켓 인증, 체결 수신
 - [ ] 배포된 데모(https://www.jev-trade.com/)의 봇을 Bybit 설정으로 다시 배포
@@ -1607,3 +1609,21 @@ $1000 때와 같은 흐름: 부분 익절을 켜면 손실, 끄면 이익. 격�
 - 로컬은 `bun run start`라 끄면 봇이 종료만 되고 다시 뜨지 않음(서버는 systemd가 재시작).
 - 확인: 로컬에서 임시 비밀번호로 401, 같은 값 200(재시작 없음), 잘못된 본문 400, OPTIONS 헤더 확인. 브라우저에서 스위치와 패널 확인. 실제로 끄는 동작은 실행하지 않음(로컬이 데모 실주문으로 바뀌므로).
 - 테스트 `test/runtime.test.ts` 4개 추가, 155개 통과. 타입 오류는 기존 5개 그대로.
+
+### 89. 88번 커밋, push, 서버 배포
+
+- 커밋 `95def6f`, GitHub Actions 배포 성공. 서버 봇 재시작 확인: `DRY RUN, balance $10224.87`, meta `virtual {on: true, toggle: false, keys: false}`.
+- 서버에 `ADMIN_TOKEN`이 없어 `POST /virtual`은 403, 대시보드 스위치는 On 상태만 표시. 웹 200.
+
+### 90. 서버에 ADMIN_TOKEN과 Bybit 키 설정 확인
+
+- 사용자가 서버 `.env`에 `ADMIN_TOKEN`(9자)과 `BYBIT_API_KEY`/`SECRET`을 직접 넣고 재시작. 값은 길이만 확인.
+- 서버 meta `virtual {on: true, toggle: true, keys: true}`, `DRY_RUN=true`, `BYBIT_ENV=demo`, `.runtime.json` 없음. 틀린 비밀번호는 401.
+- 스위치 Off(데모 실주문)는 아직 누르지 않음. 키로 주문하는 경로는 아직 미검증.
+
+### 91. 포지션 수량 옆에 진입금액
+
+**요청**: 포지션 리스트 수량 `0.0090 BTC`를 `0.0090 BTC / $100`처럼 진입금액과 함께 표시.
+
+- `web/src/components/Book/Book.tsx` 포지션 수량 칸: 수량 × 평균 진입가를 달러 정수로 붙임. 진입가가 없으면 수량만.
+- 로컬 확인: `0.0090 BTC / $731`. 웹 타입 검사 통과.
