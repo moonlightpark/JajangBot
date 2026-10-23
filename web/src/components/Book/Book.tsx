@@ -181,7 +181,7 @@ export default function Book({
               <tr>
                 <th>종목</th>
                 <th>방향</th>
-                <th>수량</th>
+                <th>수량/주문금액</th>
                 <th>진입가</th>
                 <th>현재가</th>
                 <th>평가금액</th>
@@ -256,7 +256,7 @@ export default function Book({
                   <th>시간</th>
                   <th>종목</th>
                   <th>방향</th>
-                  <th>수량</th>
+                  <th>수량/주문금액</th>
                   <th>진입가</th>
                   <th>청산가</th>
                   <th>손익</th>
@@ -304,7 +304,7 @@ export default function Book({
                   <th>시간</th>
                   <th>종목</th>
                   <th>방향</th>
-                  <th>수량</th>
+                  <th>수량/주문금액</th>
                   <th>진입가</th>
                   <th>청산가</th>
                   <th>손익</th>
