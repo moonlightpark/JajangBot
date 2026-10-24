@@ -43,7 +43,7 @@
 | Jev 비교 | `bun run start:jev`(:3002, dry run), `bun run dev:web:jev`(:3003), `bun run compare`. Jev 키가 없어 아직 Jev 실행 안 함 (35번) |
 | 가상매매 스위치 | 상단 메뉴바 "가상매매 On/Off"(88번). 관리자 비밀번호(`ADMIN_TOKEN`) 필요, 바꾸면 `.runtime.json`에 저장하고 봇 재시작. 서버에 `ADMIN_TOKEN`과 Bybit 데모 키 설정 완료(90번), 지금 On |
 | 테스트 | `bun test` 155개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
-| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 93번까지 커밋 푸시(942aa86), 서버 배포와 서버 `.env` `STRATEGY_RETAKE_TP=50` 적용 완료) |
+| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 95번까지 커밋 푸시(6a3fd20), 서버 배포와 서버 `.env` `STRATEGY_RETAKE_TP=50` 적용 완료) |
 | 서버 배포 | `220.76.214.201`(Ubuntu 24.04, 사용자 `mineos`, shipgo와 같이 쓰는 서버). `~/jevtrade`에서 systemd `jevtrade-bot`(:3000), `jevtrade-web`(:3001), 둘 다 127.0.0.1에만 바인딩. nginx가 `www.gpurent.io`, `api.gpurent.io`를 HTTPS로 연결, 인증서 자동 갱신 (43, 44번) |
 | 자동 배포 | `.github/workflows/deploy.yml`: main에 push하면 `bun test` 후 SSH로 `deploy/deploy.sh` 실행. Secrets 4개 등록 완료. (43, 45번) |
 | 미검증 | 실제 키로 주문하는 경로 전체 |
@@ -1650,3 +1650,27 @@ $1000 때와 같은 흐름: 부분 익절을 켜면 손실, 끄면 이익. 격�
 - 최소 120px, 차트 행은 최소 200px 남김. 높이는 브라우저 localStorage(`jevtrade.bookHeight`)에 저장, 다시 열 때 창 크기에 맞춰 줄임.
 - `Book`에 `height` prop과 `data-book`, 하단 위 테두리는 막대가 대신함.
 - 브라우저 확인: 드래그로 220 → 607px, 끝까지 올리면 차트 200px에서 멈춤, 새로고침 후 유지, 더블클릭으로 220px.
+
+### 96. 94~95번 커밋, push, 서버 배포
+
+- 커밋 `6a3fd20`, GitHub Actions 배포 성공. 서버 봇 재시작 후 가상매매 On, 웹 200.
+
+## 2026-10-25
+
+### 97. 차트가 UTC+9로 표시되는지 확인
+
+**요청**: 차트 표시가 UTC+9인지 확인.
+
+- 코드: `web/src/lib/chartTime.ts` 기본 시간대 "한국시간"(+9), 축과 십자선 라벨, 백테스트 상세 카드 시각에 적용. 봉 경계는 UTC 그대로(15분봉은 KST에서도 같은 경계).
+- 운영 사이트(www.gpurent.io)에서 확인: 01:54 KST(16:54 UTC)에 마지막 15분봉 십자선이 `2026.10.25 01:45`, 축 끝 `01:45`. UTC 버튼을 누르면 `2026.10.24 16:45`로 9시간 차이. 다시 한국시간으로 돌려 둠.
+- 참고: 판단 기록, 표의 시각은 차트 설정이 아니라 브라우저 현지 시각(한국 브라우저면 KST). 변경 없음.
+
+### 98. 25일 00시~01시35분 롱 2차 진입이 안 보인 원인
+
+**요청**: 25일 00시부터 1시35분 사이 롱 2차 진입이 왜 안 됐는지 조사.
+
+- 서버 로그(서버 시간대 KST): 2차 진입은 됐음. `00:15:27 entry 2 of 3, long signal after 185 bars`, 판단 `open long 5x` @ 79678.15, `00:17:57 FILL buy 0.01 @ 79678.1 (sim)`. 포지션 0.009 @ 81237.2(1차, 백테스트에서 이어받음) → 0.019 @ 80416.6. 이후 3차는 70봉 대기 중(01:30에 5/70).
+- 원인(표시 문제): dry run 체결은 봇 기록(history의 해당 블록 `fill`)에만 남고, 차트 테이프와 SSE `fill`로 나가지 않음. 대시보드의 차트 매수 표시, 체결 탭, 거래기록은 테이프의 체결만 읽으므로 모의 체결이 하나도 보이지 않음. 포지션 수량과 평균가만 바뀜.
+- 수정: `BybitMarket.markSimFill(fill)`(키 없는 dry run만)로 모의 체결을 차트 테이프에 넣고 실제 체결과 같은 경로로 방송. `src/index.ts` `onFill`에서 `fill.simulated`면 호출, 방송의 `simulated`는 키 없을 때 true. 새로고침해도 `/tape`, 스냅샷에 남음.
+- 테스트 1개 추가(같은 체결 두 번이면 한 번만 표시), 156개 통과. 타입 오류는 기존 5개.
+- 참고: 이번 00:17 체결은 서버 메모리의 테이프에 없어서 배포 후에도 봇 체결로는 안 보임. 재시작하면 백테스트의 미청산 포지션(2차 포함)을 다시 이어받음.

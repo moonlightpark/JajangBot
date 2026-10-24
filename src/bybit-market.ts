@@ -277,6 +277,23 @@ export class BybitMarket implements VenueMarket {
     if (this.feed.chart.addFill(print)) this.onVenueFill?.(print);
   }
 
+  /**
+   * A dry-run fill. Mark it on the chart tape and stream it like a venue fill, so the
+   * dashboard's chart marks, 체결, and 거래기록 show it, also after a page reload.
+   */
+  markSimFill(fill: Fill, ts = Date.now()) {
+    if (this.wallet) return;
+    const print = {
+      ts,
+      side: fill.side,
+      price: fill.price,
+      size: fill.size,
+      ...(fill.dir ? { dir: fill.dir } : {}),
+      ...(fill.feeUsd != null && Number.isFinite(fill.feeUsd) ? { feeUsd: fill.feeUsd } : {}),
+    };
+    if (this.feed.chart.addFill(print)) this.onVenueFill?.(print);
+  }
+
   private openPrivate(delay = 0) {
     setTimeout(() => {
       const ws = new WebSocket(this.hosts.privateWs);

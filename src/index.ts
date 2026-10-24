@@ -83,7 +83,7 @@ for (const spec of specs) {
         market,
         createModel(market),
         onEvent(spec.coin),
-        onFill(spec.coin),
+        onFill(spec.coin, market),
         onQuote(spec.coin),
       );
       trader.attachTradeFeed(feed.trades);
@@ -106,7 +106,7 @@ for (const spec of specs) {
           price: p.price,
           txHash: p.hash ?? null,
           orderId: 0,
-          simulated: false,
+          simulated: !market.wallet,
           dir: p.dir,
         }, p.ts);
       };
@@ -157,8 +157,9 @@ function onEvent(coin: string) {
   };
 }
 
-function onFill(coin: string) {
+function onFill(coin: string, market: BybitMarket) {
   return (block: number, fill: Fill) => {
+    if (fill.simulated) market.markSimFill(fill);
     const kind = fill.dir === "open" ? "OPEN " : fill.dir === "close" ? "CLOSE " : fill.dir === "flip" ? "FLIP " : "";
     console.log(`${coin} #${block} ${kind}FILL ${fill.side} ${fill.size} @ ${fill.price}${fill.simulated ? " (sim)" : ""}`);
   };

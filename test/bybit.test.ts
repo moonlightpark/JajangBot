@@ -128,3 +128,18 @@ test("Bybit keys: per-coin sub-accounts, first coin can use BYBIT_API_KEY", () =
     }
   }
 });
+
+test("a dry-run fill lands on the chart tape and streams like a venue fill", async () => {
+  const { BybitFeed } = await import("../src/bybit-feed");
+  const { BybitMarket } = await import("../src/bybit-market");
+  const feed = new BybitFeed("BTC");
+  const market = new BybitMarket(feed, { coin: "BTC", pair: "BTC-USDT", label: "BTC" });
+  const streamed: unknown[] = [];
+  market.onVenueFill = (p) => streamed.push(p);
+  market.markSimFill({ side: "buy", size: 0.01, price: 79678.1, txHash: null, orderId: -1, simulated: true, feeUsd: 0.16 }, 1000);
+  market.markSimFill({ side: "buy", size: 0.01, price: 79678.1, txHash: null, orderId: -1, simulated: true, feeUsd: 0.16 }, 1000);
+  const marks = feed.chart.points.filter((p) => p.fill);
+  expect(marks).toHaveLength(1);
+  expect(marks[0]).toMatchObject({ ts: 1000, fill: { side: "buy", price: 79678.1, size: 0.01 } });
+  expect(streamed).toHaveLength(1);
+});
