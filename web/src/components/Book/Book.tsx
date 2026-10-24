@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import type { BlockEvent, Meta, PricePoint, SleeveMeta } from "@/lib/types";
 import type { BacktestReport } from "@/lib/bot-types";
 import { backtestLots, lotSummary } from "@/lib/backtest";
-import { closedLots, tapeFills, withBalance } from "@/lib/fills";
+import { closedLots, tapeFills, withBalance, type TapeFill } from "@/lib/fills";
 import { roePct } from "@/lib/pnl";
 import { displayCoin, fmtClock, fmtCoin, fmtDateTime, fmtPct, fmtPrice, fmtSignedUsd, fmtUsd, shortTx, SIDE_KO, txUrl } from "@/lib/format";
 import { Bone } from "@/components/Skeleton/Skeleton";
@@ -65,12 +65,26 @@ export default function Book({
   const [focusedRow, setFocusedRow] = useState<string | null>(null);
 
   const trades = useMemo(() => {
-    const rows = [];
+    const rows: (TapeFill & { coin: string; round?: number })[] = [];
     for (const sleeve of sleeves) {
       if (!allMarkets && sleeve.coin !== selected) continue;
       for (const fill of tapeFills(tapeByCoin[sleeve.coin] ?? [])) {
         rows.push({ ...fill, coin: sleeve.coin });
       }
+      // The position the dry run carried on from the backtest: its entries were never bot fills.
+      const carried = sleeve.carried;
+      (carried?.entries ?? []).forEach((e, i) => {
+        rows.push({
+          key: `carried|${e.ts}|${e.px}|${e.size}`,
+          ts: e.ts,
+          side: carried!.side === "long" ? "buy" : "sell",
+          price: e.px,
+          size: e.size,
+          dir: "open",
+          coin: sleeve.coin,
+          round: e.round ?? i + 1,
+        });
+      });
     }
     rows.sort((a, b) => b.ts - a.ts);
     return rows.slice(0, TRADE_CAP);
@@ -397,17 +411,21 @@ export default function Book({
             <tbody>
               {trades.map((fill) => {
                 const sideColor = fill.side === "buy" ? "var(--buy-ink)" : "var(--sell-ink)";
-                const action = fill.dir === "open" ? "진입" : fill.dir === "close" ? "청산" : fill.dir === "flip" ? "전환" : "체결";
+                const action = fill.round != null ? `${fill.round}차 진입` : fill.dir === "open" ? "진입" : fill.dir === "close" ? "청산" : fill.dir === "flip" ? "전환" : "체결";
                 return (
                   <tr key={`${fill.coin}|${fill.key}`} onClick={() => onSelect(fill.coin)}>
-                    <td>{fmtClock(fill.ts, true)}</td>
+                    <td title={fmtClock(fill.ts, true)}>{fmtDateTime(fill.ts)}</td>
                     <td>{displayCoin(fill.coin)}</td>
                     <td style={{ color: sideColor }}>{SIDE_KO[fill.side] ?? fill.side}</td>
                     <td style={{ color: sideColor }}>{action}</td>
                     <td>{fmtPrice(fill.price)}</td>
                     <td>{fmtSize(fill.size)}</td>
                     <td>
-                      {fill.hash ? (
+                      {fill.round != null ? (
+                        <span className={styles.btTag} title="봇이 시작할 때 백테스트에서 이어받은 포지션의 진입입니다. 백테스트(1분 단위) 기준 시각과 가격입니다.">
+                          백테스트에서 이어받음
+                        </span>
+                      ) : fill.hash ? (
                         <a href={txUrl(fill.hash, meta?.explorerTx)} target="_blank" rel="noreferrer">
                           {shortTx(fill.hash)}
                         </a>

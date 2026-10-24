@@ -7,7 +7,7 @@ import { backtestMarks } from "@/lib/backtest";
 import type { BacktestReport, ChannelPoint } from "@/lib/bot-types";
 import { channelForView } from "@/lib/levels";
 import { DEFAULT_ZONE, ZONES } from "@/lib/chartTime";
-import { barsForView, fillMarks, type BarSize, type ChartFocus } from "@/lib/ohlc";
+import { barMs, barsForView, fillMarks, type BarSize, type ChartFocus } from "@/lib/ohlc";
 import { Bone } from "@/components/Skeleton/Skeleton";
 import CandlePane from "./CandlePane";
 import styles from "./FlowChart.module.css";
@@ -25,7 +25,16 @@ const INTERVALS: { id: BarSize; label: string }[] = [
 ];
 
 const DEFAULT_INTERVAL: BarSize = "15m";
+/** Bars a picked trade gets around it, and what the short intervals open on. */
 const VISIBLE_BARS = 80;
+/** 15m and longer open on the last 45 days. */
+const START_DAYS = 45;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function startBars(bar: BarSize): number {
+  const ms = barMs(bar);
+  return ms >= barMs("15m") ? Math.ceil((START_DAYS * DAY_MS) / ms) : VISIBLE_BARS;
+}
 
 export default function FlowChart({
   tape = [],
@@ -152,6 +161,7 @@ export default function FlowChart({
               rangeKey={`${coin}:${interval}`}
               focus={interval === "1s" ? null : focus}
               visibleBars={VISIBLE_BARS}
+              startBars={startBars(interval)}
               secondsVisible={interval === "1s"}
               offsetH={zone.offsetH}
               formatPrice={fmtPrice}

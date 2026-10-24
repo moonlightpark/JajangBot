@@ -308,6 +308,7 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     ...(held.level != null ? { level: held.level } : {}),
     firstPx: held.entries[0]!.px,
     ...(held.tpPx != null ? { tpPx: held.tpPx } : {}),
+    entries: held.entries.map((e) => ({ ts: e.ts, px: e.px, size: e.size, ...(e.round != null ? { round: e.round } : {}) })),
   };
   return { ticks, trades, pnlUsd: realized, feesUsd: fees, maxDrawdownUsd: maxDd, missedEntries: missed, stops, firstTs, lastTs, open };
 }

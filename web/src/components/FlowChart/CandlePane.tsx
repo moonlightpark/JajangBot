@@ -44,7 +44,10 @@ type Props = {
   rangeKey: string;
   /** Scroll to this trade once its bars are loaded. */
   focus: ChartFocus | null;
+  /** Bars around a focused trade at least. */
   visibleBars: number;
+  /** Bars shown when the chart opens or the interval changes. */
+  startBars: number;
   secondsVisible: boolean;
   /** Hours added to UTC for axis, crosshair, and hover card labels. */
   offsetH: number;
@@ -123,6 +126,7 @@ export default function CandlePane({
   rangeKey,
   focus,
   visibleBars,
+  startBars,
   secondsVisible,
   offsetH,
   formatPrice,
@@ -169,6 +173,8 @@ export default function CandlePane({
         timeVisible: true,
         secondsVisible,
         shiftVisibleRangeOnNewBar: true,
+        // 45 days of 15m bars is about 4300 candles; the default 0.5px floor would cut that short.
+        minBarSpacing: 0.1,
         tickMarkFormatter: (time: Time, type: TickMarkType) => tickLabel(time as number, type, clockRef.current.offsetH),
       },
       localization: {
@@ -263,9 +269,9 @@ export default function CandlePane({
     shownRef.current = next;
     if (rangeRef.current !== rangeKey || stemChanged) {
       rangeRef.current = rangeKey;
-      showLatest(chartRef.current, bars.length, visibleBars);
+      showLatest(chartRef.current, bars.length, startBars);
     }
-  }, [candles, rangeKey, visibleBars]);
+  }, [candles, rangeKey, startBars]);
 
   // After the bars effect, so a focus wins over its jump to the latest bar. Waits until the
   // loaded bars reach back to the trade, and applies again when older bars load into the same

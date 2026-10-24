@@ -43,7 +43,7 @@
 | Jev 비교 | `bun run start:jev`(:3002, dry run), `bun run dev:web:jev`(:3003), `bun run compare`. Jev 키가 없어 아직 Jev 실행 안 함 (35번) |
 | 가상매매 스위치 | 상단 메뉴바 "가상매매 On/Off"(88번). 관리자 비밀번호(`ADMIN_TOKEN`) 필요, 바꾸면 `.runtime.json`에 저장하고 봇 재시작. 서버에 `ADMIN_TOKEN`과 Bybit 데모 키 설정 완료(90번), 지금 On |
 | 테스트 | `bun test` 155개 통과. 봇 타입 오류 5개는 기존 Jev 관련 코드 문제 |
-| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 95번까지 커밋 푸시(6a3fd20), 서버 배포와 서버 `.env` `STRATEGY_RETAKE_TP=50` 적용 완료) |
+| 저장소 | https://github.com/moonlightpark/JajangBot (`main`, 98번까지 커밋 푸시(1e0392b), 서버 배포와 서버 `.env` `STRATEGY_RETAKE_TP=50` 적용 완료) |
 | 서버 배포 | `220.76.214.201`(Ubuntu 24.04, 사용자 `mineos`, shipgo와 같이 쓰는 서버). `~/jevtrade`에서 systemd `jevtrade-bot`(:3000), `jevtrade-web`(:3001), 둘 다 127.0.0.1에만 바인딩. nginx가 `www.gpurent.io`, `api.gpurent.io`를 HTTPS로 연결, 인증서 자동 갱신 (43, 44번) |
 | 자동 배포 | `.github/workflows/deploy.yml`: main에 push하면 `bun test` 후 SSH로 `deploy/deploy.sh` 실행. Secrets 4개 등록 완료. (43, 45번) |
 | 미검증 | 실제 키로 주문하는 경로 전체 |
@@ -1674,3 +1674,26 @@ $1000 때와 같은 흐름: 부분 익절을 켜면 손실, 끄면 이익. 격�
 - 수정: `BybitMarket.markSimFill(fill)`(키 없는 dry run만)로 모의 체결을 차트 테이프에 넣고 실제 체결과 같은 경로로 방송. `src/index.ts` `onFill`에서 `fill.simulated`면 호출, 방송의 `simulated`는 키 없을 때 true. 새로고침해도 `/tape`, 스냅샷에 남음.
 - 테스트 1개 추가(같은 체결 두 번이면 한 번만 표시), 156개 통과. 타입 오류는 기존 5개.
 - 참고: 이번 00:17 체결은 서버 메모리의 테이프에 없어서 배포 후에도 봇 체결로는 안 보임. 재시작하면 백테스트의 미청산 포지션(2차 포함)을 다시 이어받음.
+
+### 99. 97~98번 커밋, push, 서버 배포
+
+- 커밋 `1e0392b`, GitHub Actions 배포 성공. 이후 모의 체결은 차트, 체결 탭에 표시됨(실제 화면 확인은 다음 체결 때).
+
+### 100. 이어받은 포지션의 진입내역을 체결 탭에
+
+**요청**: 이어받은 포지션 진입내역도 체결 탭에 표시.
+
+- `BacktestOpen.entries`(`src/types.ts`, `web/src/lib/bot-types.ts` 동일): 포지션에 남은 진입 각각의 시각, 가격, 수량, 회차. `src/backtest.ts`가 미청산 포지션에서 채움.
+- `web/src/components/Book/Book.tsx` 체결 탭: `sleeve.carried.entries`를 행으로 추가. 유형 "N차 진입", 거래 ID 칸에 "백테스트에서 이어받음"(툴팁: 백테스트 1분 단위 기준 시각과 가격).
+- 체결 탭 시각을 `MM.DD HH:MM`으로(이전에는 시각만, 툴팁에 초까지). 이어받은 1차처럼 며칠 전 행을 구분하려고.
+- 로컬 확인: `10.25 00:15 매수 2차 진입 79683.0 0.01`, `10.23 02:00 매수 1차 진입 81237.2 0.009`, 둘 다 "백테스트에서 이어받음".
+- 백테스트 테스트에 진입 목록 검사 추가, 156개 통과.
+- 참고: 부분 익절로 일부 청산한 뒤 이어받은 경우, 그 부분 청산은 체결 탭에 없음(백테스트 거래로 거래기록에 표시).
+
+### 101. 차트를 열면 45일치 캔들 표시
+
+**요청**: 기본 차트의 캔들은 45일치씩 표시.
+
+- `web/src/components/FlowChart/FlowChart.tsx`: 15분, 1시간, 4시간, 1일 주기는 차트를 열거나 주기를 바꿀 때 최근 45일(`START_DAYS`)을 표시(15분 4320봉, 1시간 1080봉, 4시간 270봉, 1일 45봉). 1초, 1분, 5분은 데이터가 며칠치라 이전처럼 80봉.
+- `CandlePane`에 `startBars` prop 추가(거래기록에서 거래를 고를 때의 최소 범위는 그대로 80봉). `minBarSpacing: 0.1`로 낮춤(기본 0.5px면 15분 45일이 잘림).
+- 로컬 확인: 15분 차트 축이 9월 10일 무렵부터 10월 25일까지.

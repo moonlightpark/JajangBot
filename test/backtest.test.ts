@@ -273,6 +273,8 @@ test("the run hands back the position still open, with the strategy's entry stat
   expect(r.open).toMatchObject({ side: "long", count: 2, firstPx: 98, entryTs: t0 + M, lastTs: t0 + 23 * M, prevTs: t0 + M });
   expect(r.open!.size).toBeCloseTo(40 / 98 + 40 / 97.5, 2);
   expect(r.open!.feesUsd).toBeGreaterThan(0);
+  expect(r.open!.entries!.map((e) => [e.ts, e.px])).toEqual([[t0 + M, 98], [t0 + 23 * M, 97.5]]);
+  expect(r.open!.entries!.reduce((n, e) => n + e.size, 0)).toBeCloseTo(r.open!.size, 8);
   expect(runBacktest(calm(WARM + 5), opts).open).toBeNull();
 });
 

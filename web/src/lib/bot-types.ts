@@ -258,4 +258,9 @@ export interface BacktestOpen {
   firstPx: number;
   /** Price of the last first-price take profit. */
   tpPx?: number;
+  /**
+   * Every entry still in the position, oldest first. `round` is the entry number when it
+   * differs from the position in the list. The dashboard lists them under 체결.
+   */
+  entries?: { ts: number; px: number; size: number; round?: number }[];
 }
