@@ -38,6 +38,7 @@ function wordOf(event: BlockEvent, kind: Kind): string {
   const d = event.decision;
   if (kind === "late") return LATE_KO;
   if (kind === "hold") return HOLD_KO;
+  if (d?.risk) return d.risk.rule === "volume" ? "거래량 청산" : "리스크 손절";
   if (d?.intent === "close") return d.closeFraction ? "부분 익절" : "청산";
   if (d?.intent === "open") return "진입";
   if (d?.action === "buy") return SIDE_KO.buy!;
@@ -140,7 +141,9 @@ export default function Feed({
             return (
               <div key={event.block} className={rowClass}>
                 <span className={`${styles.cell} ${styles.time}`}>{fmtClock(event.ts, true)}</span>
-                <span className={`${styles.cell} ${styles.word}`}>{wordOf(event, kind)}</span>
+                <span className={`${styles.cell} ${styles.word}`} title={decision?.risk ? `리스크 감시(코드)가 낸 청산: ${decision.risk.reason}` : undefined}>
+                  {wordOf(event, kind)}
+                </span>
                 <span className={`${styles.cell} ${styles.lat}`}>{lat}</span>
                 <span
                   className={`${styles.cell} ${styles.detail}${detailMuted ? ` ${styles.muted}` : ""}`}

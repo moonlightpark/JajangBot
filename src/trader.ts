@@ -1,7 +1,9 @@
 import { config } from "./config";
 import { bpsBetween, snapshotIndicators, venueFeatures } from "./indicators";
 import { carriedSize, type Model, type ModelDecision, type TradeState } from "./model";
+import { slipBps } from "./book";
 import { planQuote, type QuotePlan } from "./plan";
+import { entryBudgetUsd, leverageRoomUsd, riskCheck, riskStopPrice, type RiskRule } from "./risk";
 import { aggregateFills, emptySummary, takeLiveFills, takeSimFills, type Resting, type TradeFeed } from "./trades";
 import type { BacktestOpen, BlockEvent, Book, Fill, PricePoint, Quote, Side, Timing, Totals } from "./types";
 import type { VenueMarket } from "./venue";
@@ -36,6 +38,15 @@ export class Trader {
   private position = { sz: 0, costUsd: 0 };
   private totals: Totals = emptyTotals();
   private jevPauseUntil = 0;
+  private lastBlock = 0;
+  /** Book older than RISK_STALE_MS: new entries wait, the watchdog says so once. */
+  private stale = false;
+  /** The watchdog sent a close; it waits this long before trying again. */
+  private riskBusyUntil = 0;
+  /** Blocks whose order the risk watchdog sent, so their fills say so. */
+  private riskBlocks = new Map<number, RiskRule>();
+  /** Every fill since the bot started, for the daily report. */
+  readonly ledger: { ts: number; fill: Fill }[] = [];
   /** Dry run starting balance for this sleeve. index.ts splits BANKROLL_USD across sleeves. */
   bankrollUsd = config.bankrollUsd;
 
@@ -95,7 +106,15 @@ export class Trader {
         const decision = await this.model.decide(this.buildState(block, book));
         this.totals.decisions++;
         this.totals.jevUsd += (decision.inputTokens / 1e6) * config.jevUsdPerMTok;
-        const quoteSz = this.market.quoteSize(book.mid);
+        this.lastBlock = block;
+        // MAX_ACCOUNT_LEVERAGE: only an open that adds to the held side (or opens from flat) counts.
+        const posSide = this.position.sz > 0 ? "long" : this.position.sz < 0 ? "short" : "flat";
+        const adds = decision.intent === "open" && (posSide === "flat" || posSide === decision.bias);
+        const equity = this.equityUsd();
+        const room = adds ? leverageRoomUsd(config.maxAccountLeverage, equity, Math.abs(this.position.sz) * book.mid) : Infinity;
+        // With the cap, every entry is its share of it from the first one on, so the last still fits.
+        const budget = entryBudgetUsd(config.maxAccountLeverage, equity, this.entrySlots());
+        const quoteSz = this.market.quoteSize(book.mid, room, budget ?? undefined);
         const plan = planQuote({
           intent: decision.intent,
           bias: decision.bias,
@@ -109,9 +128,15 @@ export class Trader {
         if (!plan && decision.intent === "open" && quoteSz > 0) {
           console.log(`${this.market.label} #${block} open held at MAX_POSITION_USD $${config.maxPositionUsd}`);
         }
+        if (decision.intent === "open" && !(quoteSz > 0) && config.maxAccountLeverage != null) {
+          console.log(`${this.market.label} #${block} open held at MAX_ACCOUNT_LEVERAGE ${config.maxAccountLeverage}x: the room left ($${Math.round(room)}) is under the venue's minimum order`);
+        }
+        // A stale book is no price to enter at. Exits still go: they cross as IOC.
+        const held = plan && !plan.reduceOnly && this.isStale();
+        if (held) console.log(`${this.market.label} #${block} open held: the book is stale`);
         timing.loopMs = Math.round(performance.now() - t0);
         this.emit(block, book, decision, null, false, timing);
-        if (plan) this.enqueueQuote(block, decision, plan, book);
+        if (plan && !held) this.enqueueQuote(block, decision, plan, book);
         else this.enqueueStandDown();
       } catch (e) {
         const msg = (e as Error).message;
@@ -130,7 +155,75 @@ export class Trader {
     }
   }
 
-  private enqueueQuote(block: number, decision: ModelDecision, plan: QuotePlan, book: Book) {
+  /** Balance the account leverage cap reads: Bybit equity, or the dry run's own. */
+  private equityUsd(): number {
+    const a = this.market.account;
+    if (this.market.wallet) return a && Number.isFinite(a.accountValue) ? a.accountValue : 0;
+    return this.bankrollUsd + this.totals.pnlUsd;
+  }
+
+  /** Entries one position may take: the strategy's first plus its adds. A model without adds has one. */
+  private entrySlots(): number {
+    return config.model === "strategy" ? 1 + config.strategyMaxAdds : 1;
+  }
+
+  private isStale(): boolean {
+    const at = this.market.bookAt;
+    return at != null && at > 0 && Date.now() - at > config.riskStaleMs;
+  }
+
+  /**
+   * The risk watchdog, on its own timer (RISK_CHECK_MS), apart from the model's tick. It is
+   * never overruled: when a rule says close, the whole position goes as an IOC exit, the
+   * model is told, and the event says the watchdog made the call. `nextBlock` gives the
+   * close its own row. With a wallet it also keeps Bybit's server-side stop in place.
+   */
+  async riskTick(nextBlock: () => number) {
+    this.syncFromVenue();
+    const stale = this.isStale();
+    if (stale !== this.stale) {
+      this.stale = stale;
+      console.log(`${this.market.label} risk: ${stale ? `book is stale (over ${config.riskStaleMs / 1000}s), new entries wait` : "book is fresh again"}`);
+    }
+    const sz = this.position.sz;
+    const side = sz > 0 ? "long" : "short";
+    const entry = this.entryPrice();
+    if (this.market.wallet && this.market.setStopLoss) {
+      await this.market.setStopLoss(sz && entry != null ? riskStopPrice(side, entry, config.riskStopPct) : null);
+    }
+    const rules = { stopPct: config.riskStopPct, volumeRatio: config.riskVolumeRatio };
+    if (!sz || entry == null || stale || Date.now() < this.riskBusyUntil) return;
+    if (rules.stopPct == null && rules.volumeRatio == null) return;
+    let book: Book;
+    try {
+      book = this.market.readBook();
+    } catch {
+      return;
+    }
+    const turnover = rules.volumeRatio != null ? this.market.bars("15m").map((b) => b.turnover ?? Number.NaN) : null;
+    const hit = riskCheck(rules, { side, entryPx: entry }, book.mid, turnover);
+    if (!hit) return;
+    this.riskBusyUntil = Date.now() + Math.max(15_000, config.riskCheckMs * 3);
+    const block = nextBlock();
+    console.log(`${this.market.label} #${block} RISK ${hit.rule}: ${hit.reason}, closing ${side} ${Math.abs(sz)}`);
+    this.model.riskClosed?.(side);
+    const decision: ModelDecision = {
+      action: sz > 0 ? "sell" : "buy",
+      intent: "close",
+      bias: side,
+      leverage: this.market.account?.leverage ?? 1,
+      probabilities: { buy: 0, sell: 0, hold: 0, long: 0, short: 0, open: 0, close: 1 },
+      upIn10: 0.5,
+      latencyMs: 0,
+      inputTokens: 0,
+      risk: { rule: hit.rule, reason: hit.reason },
+    };
+    this.riskBlocks.set(block, hit.rule);
+    this.emit(block, { ...book, block }, decision, null, false);
+    this.enqueueQuote(block, decision, { side: sz > 0 ? "sell" : "buy", size: Math.abs(sz), reduceOnly: true, taker: true }, book, hit.rule);
+  }
+
+  private enqueueQuote(block: number, decision: ModelDecision, plan: QuotePlan, book: Book, risk?: RiskRule) {
     const seq = ++this.sendSeq;
     this.exchangeTail = this.exchangeTail.catch(() => {}).then(async () => {
       if (seq !== this.sendSeq) return;
@@ -141,7 +234,7 @@ export class Trader {
         if (seq !== this.sendSeq) return;
       }
       const cancel = [...this.orders.keys()].filter((id) => id > 0);
-      const quote = await this.market.send(plan.side, plan.size, book, cancel, plan.reduceOnly, plan.taker);
+      const quote = await this.market.send(plan.side, plan.size, book, cancel, plan.reduceOnly, plan.taker, risk);
       if (seq !== this.sendSeq) return;
       this.applyPosted(block, quote);
     });
@@ -217,8 +310,30 @@ export class Trader {
 
   private recordFill(block: number, fill: Fill) {
     const e = this.history.find((h) => h.block === block);
+    // Slippage against the mid the order was decided at.
+    const slip = e ? slipBps(fill.side, fill.price, e.mid) : null;
+    if (e && slip != null) Object.assign(fill, { refPx: e.mid, slipBps: slip });
+    const risk = this.riskBlocks.get(block);
+    if (risk) fill.risk = risk;
     if (e) e.fill = fill;
+    this.ledger.push({ ts: Date.now(), fill });
+    if (this.ledger.length > 5000) this.ledger.shift();
     this.onFill(block, fill);
+  }
+
+  /** The numbers the daily report takes the difference of. */
+  dailyMark() {
+    const a = this.market.account;
+    const mid = this.lastBook?.mid ?? 0;
+    const equity = this.market.wallet ? (a?.accountValue ?? 0) : this.bankrollUsd + this.totals.pnlUsd;
+    const sz = this.position.sz;
+    return {
+      at: Date.now(),
+      equityUsd: round(equity, 2),
+      realizedUsd: this.totals.realizedUsd,
+      feesUsd: this.totals.gasUsd,
+      position: sz ? { side: (sz > 0 ? "long" : "short") as "long" | "short", size: Math.abs(sz), entryPx: this.entryPrice()!, mid } : null,
+    };
   }
 
   private restingSz(side: Side) {
@@ -346,6 +461,7 @@ export class Trader {
           upIn10: decision.upIn10,
           latencyMs: Math.round(decision.latencyMs),
           ...(decision.closeFraction ? { closeFraction: decision.closeFraction } : {}),
+          ...(decision.risk ? { risk: decision.risk } : {}),
           late: false,
         },
       quote,

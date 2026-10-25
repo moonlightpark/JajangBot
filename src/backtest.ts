@@ -2,6 +2,7 @@ import { snapToStep } from "./book";
 import type { Ohlc } from "./chart";
 import { closeSize, liveIntent } from "./plan";
 import { firstPriceRestart, MAGINGA, rearm, strategyCall, type MagingaLines, type MagingaParams, type StrategyRules } from "./strategy";
+import { entryBudgetUsd, leverageRoomUsd, riskCheck, stopHit, type RiskRule, type RiskRules } from "./risk";
 import type { BacktestOpen, BacktestReport, BacktestTrade } from "./types";
 
 export type { BacktestTrade };
@@ -69,6 +70,14 @@ export interface BacktestOpts {
   /** Adds (물타기) after the first entry, same side, each its `addGapBars` 15m bars after the last. 0: none. */
   maxAdds?: number;
   addGapBars?: number[];
+  /** Risk watchdog (src/risk.ts): hard stop percent against the average entry. null: off. */
+  riskStopPct?: number | null;
+  /** Risk watchdog: close when 6h turnover is under this share of the 24h average per 6h. null: off. */
+  riskVolumeRatio?: number | null;
+  /** The position at most this many times the balance (MAX_ACCOUNT_LEVERAGE). null: no cap. */
+  maxAccountLeverage?: number | null;
+  /** Starting balance the leverage cap reads, plus closed PnL as the run goes. */
+  bankrollUsd?: number;
 }
 
 
@@ -83,6 +92,8 @@ export interface BacktestResult {
   missedEntries: number;
   /** Trades closed by the stop loss. After a stop, that side waits for price to leave the band before re-entering. */
   stops: number;
+  /** Trades the risk watchdog closed. That side then waits like after a stop. */
+  riskCloses: number;
   firstTs: number | null;
   lastTs: number | null;
   /** The position still open at the end, with the strategy's entry state. */
@@ -112,11 +123,23 @@ export async function readBacktestReport(path = BACKTEST_LATEST): Promise<Backte
   }
 }
 
-/** Live `quoteSize`: QUOTE_USD of coin at `px`, never under the venue minimums. */
-export function orderSize(px: number, o: Pick<BacktestOpts, "quoteUsd" | "qtyStep" | "minQty" | "minNotional">): number {
+/**
+ * Live `quoteSize`: `baseUsd` (QUOTE_USD, or the MAX_ACCOUNT_LEVERAGE entry budget) of coin
+ * at `px`, never under the venue minimums. `roomUsd` is what the cap still allows: the order
+ * shrinks to fit, and when what fits is under the venue minimum the size is 0 (no order)
+ * rather than a minimum order past the cap.
+ */
+export function orderSize(
+  px: number,
+  o: Pick<BacktestOpts, "quoteUsd" | "qtyStep" | "minQty" | "minNotional">,
+  roomUsd = Infinity,
+  baseUsd = o.quoteUsd,
+): number {
   if (!(px > 0)) return 0;
-  const want = snapToStep(o.quoteUsd / px, o.qtyStep, "floor");
+  const usd = Math.min(baseUsd, roomUsd);
+  const want = snapToStep(usd / px, o.qtyStep, "floor");
   const floor = Math.max(o.minQty, snapToStep(o.minNotional / px, o.qtyStep, "ceil"));
+  if (roomUsd < baseUsd && want < floor) return 0;
   return Math.max(want, floor);
 }
 
@@ -166,13 +189,17 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
   // A trimmed position keeps its entries, so the rest still shows the size it opened with.
   const entriesOf = (p: Pos) => (p.entries.length > 1 || p.trimmed ? { entries: p.entries } : {});
   const trades: BacktestTrade[] = [];
-  let realized = 0, fees = 0, peak = 0, maxDd = 0, ticks = 0, missed = 0, stops = 0;
+  let realized = 0, fees = 0, peak = 0, maxDd = 0, ticks = 0, missed = 0, stops = 0, riskCloses = 0;
+  const risk: RiskRules = { stopPct: o.riskStopPct ?? null, volumeRatio: o.riskVolumeRatio ?? null };
+  /** 15m turnover, closed bars then the forming one, for the volume rule (live reads the same 15m bars). */
+  const turnover15m: number[] = [];
+  let formingTurnover = 0;
   /** The side a stop just closed: no new entry that way until its signal clears. */
   let blocked: "long" | "short" | null = null;
   let firstTs: number | null = null, lastTs: number | null = null, lastPx = 0;
 
   /** Closes `size` of the position (all of it by default). A part is its own trade, with its share of the entry fees. */
-  const close = (ts: number, px: number, size = pos!.size) => {
+  const close = (ts: number, px: number, size = pos!.size, riskRule?: RiskRule) => {
     const p = pos!;
     const part = size < p.size;
     const entryFee = p.fee * (size / p.size);
@@ -183,6 +210,7 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     trades.push({
       side: p.side, entryTs: p.entryTs, entryPx: p.entryPx, ...entriesOf(p), exitTs: ts, exitPx: px, size,
       pnlUsd: gross - entryFee - fee, feesUsd: entryFee + fee, maxAdversePct: p.worst, ...(part ? { partial: true } : {}),
+      ...(riskRule ? { risk: riskRule } : {}),
     });
     pos = part ? { ...p, size: p.size - size, fee: p.fee - entryFee, trimmed: true } : null;
   };
@@ -223,14 +251,18 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
       forming.high = Math.max(forming.high, b.high);
       forming.low = Math.min(forming.low, b.low);
       forming.close = b.close;
+      formingTurnover += b.turnover ?? Number.NaN;
     } else {
       // The previous 15m bar just closed: it joins the EMA. ts -1 is the empty start.
       if (forming.ts >= 0) {
         eHigh.push(forming.high);
         eLow.push(forming.low);
         lastClosed = forming;
+        turnover15m.push(formingTurnover);
+        if (turnover15m.length > 96) turnover15m.shift();
       }
       forming = { ts: period, open: b.open, high: b.high, low: b.low, close: b.close };
+      formingTurnover = b.turnover ?? Number.NaN;
     }
 
     const tickTs = b.ts + MINUTE_MS;
@@ -239,6 +271,23 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     ticks++;
     firstTs ??= tickTs;
     lastTs = tickTs;
+
+    // The risk watchdog runs before the strategy and is never overruled. The stop fills at its
+    // price, or at the open when the minute gapped past it; the volume rule closes at the tick.
+    if (pos && (risk.stopPct != null || risk.volumeRatio != null)) {
+      const held = pos as Pos;
+      const extreme = held.side === "long" ? b.low : b.high;
+      const hit = riskCheck(risk, held, extreme, risk.volumeRatio != null ? [...turnover15m, formingTurnover] : null);
+      if (hit) {
+        const gapped = hit.rule === "stop" && stopHit(held.side, hit.value, b.open);
+        const px = hit.rule === "stop" ? (gapped ? b.open : hit.value) : b.close;
+        close(tickTs, px, held.size, hit.rule);
+        riskCloses++;
+        blocked = held.side;
+        if (pending) missed++;
+        pending = null;
+      }
+    }
 
     // Live reads the forming bar, or with onBarClose the last closed one. At a 15m boundary
     // the forming bar has just closed, so both read it.
@@ -268,7 +317,12 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
 
     if (intent === "open") {
       // Requote at the new price, like the live cancel-and-replace.
-      const size = orderSize(b.close, o);
+      // Only an add to the held side counts against the cap; a flip closes first.
+      const held = pos as Pos | null;
+      const exposure = held && held.side === bias ? held.size * b.close : 0;
+      const equity = (o.bankrollUsd ?? 0) + realized;
+      const budget = entryBudgetUsd(o.maxAccountLeverage ?? null, equity, 1 + rules.maxAdds);
+      const size = orderSize(b.close, o, leverageRoomUsd(o.maxAccountLeverage ?? null, equity, exposure), budget ?? o.quoteUsd);
       pending = size > 0 ? { side: bias, price: b.close, size } : null;
     } else {
       if (pending) missed++;
@@ -310,5 +364,5 @@ export function runBacktest(minutes: Ohlc[], o: BacktestOpts, p: MagingaParams =
     ...(held.tpPx != null ? { tpPx: held.tpPx } : {}),
     entries: held.entries.map((e) => ({ ts: e.ts, px: e.px, size: e.size, ...(e.round != null ? { round: e.round } : {}) })),
   };
-  return { ticks, trades, pnlUsd: realized, feesUsd: fees, maxDrawdownUsd: maxDd, missedEntries: missed, stops, firstTs, lastTs, open };
+  return { ticks, trades, pnlUsd: realized, feesUsd: fees, maxDrawdownUsd: maxDd, missedEntries: missed, stops, riskCloses, firstTs, lastTs, open };
 }

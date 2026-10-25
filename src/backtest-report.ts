@@ -38,7 +38,8 @@ export async function backtestCoins(
       const leverage = clampLeverage(config.strategyLeverage, Math.min(inst.maxLeverage, config.maxLeverage ?? inst.maxLeverage));
       onLoading(coin);
       const bars = await minutes(base, symbol, start - WARMUP_MS, end);
-      const result = runBacktest(bars, { startTs: start, leverage, quoteUsd: config.quoteUsd, makerFee, takerFee, ...inst, ...liveStrategy.rules }, liveStrategy.params);
+      const result = runBacktest(bars, { startTs: start, leverage, quoteUsd: config.quoteUsd, makerFee, takerFee, ...inst, ...liveStrategy.rules,
+        riskStopPct: config.riskStopPct, riskVolumeRatio: config.riskVolumeRatio, maxAccountLeverage: config.maxAccountLeverage, bankrollUsd: config.bankrollUsd / coins.length }, liveStrategy.params);
       report.leverageByCoin[coin] = leverage;
       report.tradesByCoin[coin] = result.trades;
       if (result.open) (report.openByCoin ??= {})[coin] = result.open;
@@ -51,14 +52,16 @@ export async function backtestCoins(
 }
 
 /**
- * At bot startup: the last `months` of backtest up to `now`, saved to latest.json so the
+ * At bot startup: the backtest from BACKTEST_FROM (or the last `months`) up to `now`, saved to latest.json so the
  * chart and the dry run balance run right up to the moment the bot starts deciding.
  * If any coin fails (Bybit cannot be reached), the last saved report stays as it was,
  * so one coin's trades never vanish from the chart.
  */
-export async function refreshBacktest(coins: string[], now = Date.now(), months = 3): Promise<BacktestRun | null> {
+export async function refreshBacktest(coins: string[], now = Date.now(), months = 3, from = config.backtestFrom): Promise<BacktestRun | null> {
   const end = Math.floor(now / MINUTE_MS) * MINUTE_MS;
-  const run = await backtestCoins(coins, monthsAgo(months, end), end);
+  // BACKTEST_FROM fixes the start, so the backtest's closed PnL does not shift with each restart.
+  const start = from != null ? Math.floor(from / MINUTE_MS) * MINUTE_MS : monthsAgo(months, end);
+  const run = await backtestCoins(coins, start, end);
   for (const f of run.failed) console.log(`backtest ${f.coin}: failed: ${f.error}`);
   if (run.failed.length || !run.runs.length) return null;
   await Bun.write(BACKTEST_LATEST, JSON.stringify(run.report));

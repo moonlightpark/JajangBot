@@ -1,6 +1,7 @@
 import { BACKTEST_LATEST } from "./backtest";
 import { config } from "./config";
 import { liveStrategy } from "./model";
+import { readDailyReports } from "./daily";
 import { tokenMatches, writeRuntime } from "./runtime";
 import { magingaChannel } from "./strategy";
 import { clipHistory, clipSnapshotTape, clipTape, TAPE_MIDS } from "./snapshot";
@@ -75,7 +76,7 @@ async function setVirtual(req: Request, meta: Meta, restart: () => void): Promis
   return json({ on: body.on, restarting: true });
 }
 
-/** GET /snapshot, GET /history, GET /tape, GET /backtest, GET /levels, GET /events SSE, POST /virtual */
+/** GET /snapshot, GET /history, GET /tape, GET /backtest, GET /levels, GET /reports, GET /events SSE, POST /virtual */
 export function startServer(meta: Meta, sleeves: SleeveView[], restart: () => void = () => process.exit(0)) {
   const clients = new Set<ReadableStreamDefaultController<Uint8Array>>();
   const enc = new TextEncoder();
@@ -145,6 +146,7 @@ export function startServer(meta: Meta, sleeves: SleeveView[], restart: () => vo
       if (pathname === "/tape") return jsonMaybeGzip(req, tapeByCoin());
       if (pathname === "/backtest") return backtestReport(req);
       if (pathname === "/levels") return jsonMaybeGzip(req, levelsByCoin());
+      if (pathname === "/reports") return json(readDailyReports());
       if (pathname === "/virtual" && req.method === "POST") return setVirtual(req, meta, restart);
       if (pathname === "/events") {
         const lite = url.searchParams.get("lite") === "1";

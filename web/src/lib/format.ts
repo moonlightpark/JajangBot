@@ -67,8 +67,11 @@ export function fmtCall(d: {
   bias?: string;
   leverage?: number | null;
   closeFraction?: number;
+  risk?: { rule: string; reason: string };
 } | null | undefined): string {
   if (!d) return "";
+  // Code's call on its own timer, never the model's.
+  if (d.risk) return d.risk.rule === "volume" ? "거래량 급감 청산" : "리스크 손절";
   // A hold sends no order, so the leverage and bias it came with never got applied.
   if (d.intent === "hold") return HOLD_KO;
   let word = "";

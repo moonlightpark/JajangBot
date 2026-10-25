@@ -13,3 +13,5 @@ node_modules
 # Backtest candle cache and results
 .backtest-cache/
 backtest-results/
+# Daily reports (DAILY_REPORT_HOUR_KST)
+reports/

@@ -8,8 +8,9 @@
   --track: rgba(255, 255, 255, 0.18);
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
+  gap: 8px 14px;
   padding: 12px 20px;
   background: var(--navy);
   color: var(--hdr-ink);
@@ -79,18 +80,29 @@
   font-weight: 400;
 }
 
+/* Code can close apart from the decider. Static, no animation. */
+.riskChip {
+  font-weight: 700;
+  padding: 3px 7px;
+  border: 1px solid var(--pnl-pos);
+  border-radius: 3px;
+  color: var(--pnl-pos);
+  cursor: help;
+}
+
 /* Real funds on mainnet. Static color, no animation. */
 .status[data-real="true"] {
   color: var(--pnl-neg);
 }
 
+/* On a narrow desktop window the scores drop to their own row instead of running into the status. */
 .scores {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: flex-end;
-  gap: 16px;
+  gap: 4px 16px;
   margin-left: auto;
-  min-width: 0;
 }
 
 .score {

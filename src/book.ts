@@ -91,3 +91,10 @@ export function takerPrice(side: Side, book: Book, tick: number, slippageBps = c
   const raw = side === "buy" ? book.ask * (1 + bps) : book.bid * (1 - bps);
   return Math.max(tick, snapToStep(raw, tick, side === "buy" ? "ceil" : "floor"));
 }
+
+/** A fill against the price it was decided at, in bps. Positive when it cost us: bought higher or sold lower. */
+export function slipBps(side: "buy" | "sell", price: number, refPx: number): number | null {
+  if (!(price > 0) || !(refPx > 0)) return null;
+  const raw = ((price - refPx) / refPx) * 10_000;
+  return Math.round((side === "buy" ? raw : -raw) * 100) / 100;
+}

@@ -348,6 +348,13 @@ function parseVirtual(v: unknown): Meta["virtual"] | null {
   return { on: o.on === true, toggle: o.toggle === true, keys: o.keys === true };
 }
 
+function parseRisk(v: unknown): Meta["risk"] | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : null);
+  return { stopPct: n(o.stopPct), volumePct: n(o.volumePct), maxAccountLeverage: n(o.maxAccountLeverage), entries: n(o.entries) ?? 1, dailyHourKst: n(o.dailyHourKst) };
+}
+
 function parseMeta(raw: Record<string, unknown> | null): Meta | null {
   if (!raw) return null;
   return {
@@ -355,6 +362,7 @@ function parseMeta(raw: Record<string, unknown> | null): Meta | null {
     wallet: typeof raw.wallet === "string" ? raw.wallet : null,
     dryRun: Boolean(raw.dryRun),
     ...(parseVirtual(raw.virtual) ? { virtual: parseVirtual(raw.virtual)! } : {}),
+    ...(parseRisk(raw.risk) ? { risk: parseRisk(raw.risk)! } : {}),
     market: typeof raw.market === "string" ? raw.market : "BTC-USDT",
     startedAt: typeof raw.startedAt === "number" ? raw.startedAt : Date.now(),
     venue: typeof raw.venue === "string" ? raw.venue : "bybit",

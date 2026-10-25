@@ -52,7 +52,8 @@ export function bybitTickerCtx(t: Record<string, unknown>): AssetCtx {
 
 /** Bybit kline row [start, open, high, low, close, ...] as the chart's candle shape. */
 export function bybitCandle(row: unknown[], bar: "1m" | "15m") {
-  return { t: Number(row[0]), o: row[1], h: row[2], l: row[3], c: row[4], i: bar };
+  // Bybit kline rows: start, open, high, low, close, volume, turnover.
+  return { t: Number(row[0]), o: row[1], h: row[2], l: row[3], c: row[4], v: row[6], i: bar };
 }
 
 /**
@@ -65,6 +66,8 @@ export class BybitFeed {
   readonly symbol: string;
   assetCtx: AssetCtx | null = null;
   book: Book | null = null;
+  /** When the book last changed. The risk watchdog calls an old one stale. */
+  bookAt = 0;
   tick = 0;
   onPrice: ((book: Book) => void) | null = null;
   private hosts = bybitHosts(config.bybitEnv);
@@ -106,7 +109,10 @@ export class BybitFeed {
     );
     this.local.apply("snapshot", r);
     const next = this.local.toBook(this.tick);
-    if (next) this.book = next;
+    if (next) {
+      this.book = next;
+      this.bookAt = Date.now();
+    }
   }
 
   private async loadCandles() {
@@ -126,7 +132,9 @@ export class BybitFeed {
       }
     };
     // 15m reaches back CHART_DAYS for the chart; 1m stays one page, as before.
-    await Promise.all([pull("15", "15m", now - config.chartDays * 86_400_000), pull("1", "1m", now)]);
+    // The chart also reaches back to BACKTEST_FROM, so the backtest's first marks have candles under them.
+    const since = Math.min(now - config.chartDays * 86_400_000, config.backtestFrom ?? Infinity);
+    await Promise.all([pull("15", "15m", since), pull("1", "1m", now)]);
   }
 
   private async pollTicker() {
@@ -174,6 +182,7 @@ export class BybitFeed {
       const next = this.local.toBook(this.tick);
       if (next) {
         this.book = next;
+        this.bookAt = Date.now();
         this.maybePrice();
         this.maybeTick();
       }
@@ -185,7 +194,7 @@ export class BybitFeed {
     }
     if (topic.startsWith("kline.") && Array.isArray(m.data)) {
       const i = topic.startsWith("kline.15.") ? "15m" : "1m";
-      for (const k of m.data) this.chart.upsertCandle({ t: Number(k.start), o: k.open, h: k.high, l: k.low, c: k.close, i });
+      for (const k of m.data) this.chart.upsertCandle({ t: Number(k.start), o: k.open, h: k.high, l: k.low, c: k.close, v: k.turnover, i });
       return;
     }
     if (topic.startsWith("tickers.") && m.data) {
@@ -216,6 +225,17 @@ export class BybitFeed {
     this.lastPriceAt = now;
     this.lastPriceMid = this.book.mid;
     this.onPrice(this.book);
+  }
+
+  /**
+   * A tick number for an event outside the model's cadence (the risk watchdog's close),
+   * so it gets its own row. The next model tick follows on from it.
+   */
+  nextTick(): number {
+    this.tick++;
+    this.trades.setTick(this.tick);
+    if (this.book) this.book = { ...this.book, block: this.tick };
+    return this.tick;
   }
 
   private maybeTick() {

@@ -283,6 +283,13 @@ MAX_LEVERAGE=5
 | `BYBIT_API_KEY`, `BYBIT_API_SECRET` | 비어 있음 | 첫 번째 코인의 서브계정 키. 비어 있으면 dry run |
 | `BYBIT_KEYS_JSON` | 비어 있음 | 나머지 코인의 키(`.bybit-keys.json`과 같은 형식) |
 | `DRY_RUN` | `false` | `true`면 모든 슬리브를 시뮬레이션. 대시보드 가상매매 스위치를 쓰면 `.runtime.json` 값이 우선 |
+| `MAX_ACCOUNT_LEVERAGE` | 비어 있음 | 계좌 레버리지 상한: 포지션 합계(주문금액 기준)를 잔고의 이 배수까지(1이면 잔고만큼). 넘는 진입은 남은 한도만큼 줄이고, 거래소 최소 주문보다 작으면 주문하지 않음. `STRATEGY_LEVERAGE`는 Bybit 증거금만 정함. 백테스트도 같은 규칙 |
+| `RISK_STOP_PCT` | 비어 있음 | 리스크 감시: 평균 진입가 대비 이 %만큼 불리하면 전부 청산. Bybit 키가 있으면 Bybit에 같은 가격의 전체 포지션 손절도 걸어 봇이 꺼져도 동작. 백테스트도 같은 규칙 |
+| `RISK_VOLUME_PCT` | 비어 있음 | 리스크 감시: 6시간 거래대금이 24시간 평균(6시간당)의 이 % 아래면 전부 청산. 백테스트도 같은 규칙 |
+| `RISK_CHECK_MS` | `5000` | 리스크 감시 주기. 판단 틱(`TICK_MS`)과 별개 |
+| `RISK_STALE_MS` | `60000` | 호가가 이보다 오래되면 새 진입을 멈춤(청산은 그대로) |
+| `BACKTEST_FROM` | 비어 있음 | 백테스트 시작일. `2026-07-01`이면 그날 00:00(한국시간)부터 봇 시작 시각까지. 비우면 최근 3개월(재시작할 때마다 시작점이 밀려 잔고도 조금씩 바뀜). 차트 캔들도 이 날짜까지 불러옴 |
+| `DAILY_REPORT_HOUR_KST` | 비어 있음 | 매일 이 시각(한국시간)에 하루 마감 보고를 로그와 `reports/daily.jsonl`에 남김. 대시보드 "일일 보고" 탭, `GET /reports` |
 | `ADMIN_TOKEN` | 비어 있음 | 대시보드 상단 가상매매 On/Off 스위치의 관리자 비밀번호. 비우면 스위치는 상태만 표시. 바꾸면 봇이 설정을 저장하고 재시작(systemd가 다시 띄움). On이면 실제 주문 없이 백테스트 후 실시간 가상매매 |
 | `MODEL` | `mock` | `mock`, `jev`, `strategy`. `jev`는 TypeSafe 또는 Gateway 키 필요 |
 | `STRATEGY_LEVERAGE` | `3` | `MODEL=strategy`의 진입 레버리지 |

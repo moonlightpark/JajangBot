@@ -10,6 +10,8 @@ export type TapeFill = {
   hash?: string;
   closedPnl?: number;
   feeUsd?: number;
+  slipBps?: number;
+  risk?: "stop" | "volume";
 };
 
 export type ClosedLot = {
@@ -43,6 +45,8 @@ export function tapeFills(tape: PricePoint[]): TapeFill[] {
       hash: f.hash,
       closedPnl: f.closedPnl,
       feeUsd: f.feeUsd,
+      ...(f.slipBps != null ? { slipBps: f.slipBps } : {}),
+      ...(f.risk ? { risk: f.risk } : {}),
     });
   }
   return out;

@@ -153,3 +153,11 @@
     font-size: 10px;
   }
 }
+
+/* The risk watchdog's close: code made it, not the model. */
+.riskNote {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--sell-ink);
+}

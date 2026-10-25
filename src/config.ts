@@ -103,6 +103,19 @@ export function resolveShare(name: string, raw: string | undefined): number | nu
   return n;
 }
 
+/**
+ * BACKTEST_FROM: when the backtest starts. "2026-07-01" is 00:00 KST that day; a full time
+ * ("2026-07-01T09:00:00Z") is read as written. Empty: null, the last 3 months, rolling.
+ */
+export function resolveBacktestFrom(raw: string | undefined, now = Date.now()): number | null {
+  const v = raw?.trim();
+  if (!v) return null;
+  const t = /^\d{4}-\d{2}-\d{2}$/.test(v) ? Date.parse(`${v}T00:00:00+09:00`) : Date.parse(v);
+  if (!Number.isFinite(t)) throw new Error(`BACKTEST_FROM must be a date like 2026-07-01, got ${v}`);
+  if (t >= now) throw new Error(`BACKTEST_FROM ${v} is not in the past`);
+  return t;
+}
+
 export function resolveBybitEnv(raw?: string): BybitEnv {
   const v = (raw ?? "").trim().toLowerCase();
   if (!v || v === "demo") return "demo";
@@ -136,6 +149,24 @@ export const config = {
   maxPositionUsd: cap("MAX_POSITION_USD"),
   /** Ceiling on the leverage rungs Jev can pick, below the coin max. null = coin max. */
   maxLeverage: cap("MAX_LEVERAGE"),
+  /**
+   * Account leverage cap: the open position at most this many times the balance (1 = up to
+   * the balance). Set, it also sizes every entry: the cap split over the strategy's entries
+   * (1 + STRATEGY_MAX_ADDS), in place of QUOTE_USD, so the last entry still fits. An entry
+   * that would pass the cap shrinks to fit, or is skipped under the venue minimum. Apart from
+   * STRATEGY_LEVERAGE, which only sets the margin Bybit holds. null: no cap, QUOTE_USD sizes.
+   */
+  maxAccountLeverage: cap("MAX_ACCOUNT_LEVERAGE"),
+  /** Risk watchdog: close all at this percent against the average entry, and on Bybit a server-side stop there. null: off. */
+  riskStopPct: cap("RISK_STOP_PCT"),
+  /** Risk watchdog: close all when 6h turnover is under this percent of the 24h average per 6h (20 = 20%). null: off. */
+  riskVolumeRatio: cap("RISK_VOLUME_PCT") == null ? null : cap("RISK_VOLUME_PCT")! / 100,
+  /** How often the risk watchdog looks, apart from the model's tick. */
+  riskCheckMs: Math.max(1000, Number(env("RISK_CHECK_MS", "5000")) || 5000),
+  /** A book older than this is stale: the watchdog flags it and holds new entries. */
+  riskStaleMs: Math.max(5000, Number(env("RISK_STALE_MS", "60000")) || 60000),
+  /** Daily report time, hour in UTC+9 (23 = 23:00 KST). Empty: no daily report. */
+  dailyReportHourKst: resolveWhole("DAILY_REPORT_HOUR_KST", env("DAILY_REPORT_HOUR_KST"), -1, 0, 23),
   horizonBlocks: Number(env("HORIZON_BLOCKS", "100")),
   model: resolveModel(env("MODEL")),
   /** MODEL=strategy: leverage for entries. The script's labels say x3. */
@@ -159,6 +190,8 @@ export const config = {
   strategyMaxAdds: resolveWhole("STRATEGY_MAX_ADDS", env("STRATEGY_MAX_ADDS"), 0, 0, 10),
   /** 15m bars after an entry before the next add may go in, one per add ("50,70"). */
   strategyAddGapBars: resolveGaps("STRATEGY_ADD_GAP_BARS", env("STRATEGY_ADD_GAP_BARS"), [50], 1, 10_000),
+  /** Backtest start (BACKTEST_FROM). null: the last 3 months, which moves with every restart. */
+  backtestFrom: resolveBacktestFrom(env("BACKTEST_FROM")),
   /** Days of 15m candles loaded at start, so the chart reaches back that far. At least 1000 bars either way. */
   chartDays: Math.max(1, Number(env("CHART_DAYS", "92")) || 92),
   /** typesafe = official TypeSafe API. gateway = Vercel AI Gateway. */

@@ -13,6 +13,7 @@ import { backtestOpenPnl } from "@/lib/backtest";
 import { useBacktest } from "@/lib/useBacktest";
 import { useFeed } from "@/lib/useFeed";
 import { useLevels } from "@/lib/useLevels";
+import { useReports } from "@/lib/useReports";
 import type { ChartFocus } from "@/lib/ohlc";
 import type { BlockEvent, Meta, SleeveFeed } from "@/lib/types";
 import styles from "./page.module.css";
@@ -37,6 +38,7 @@ export default function Page() {
   const feed = useFeed(API_URL);
   const backtest = useBacktest(API_URL, feed.meta?.startedAt);
   const channelByCoin = useLevels(API_URL, feed.meta?.startedAt);
+  const reports = useReports(API_URL, feed.meta?.startedAt);
   const [picked, setPicked] = useState<string | null>(null);
   const [focus, setFocus] = useState<ChartFocus | null>(null);
   const focusTrade = useCallback((c: string, fromMs: number, toMs: number) => {
@@ -122,6 +124,7 @@ export default function Page() {
       <BookSplitter onResize={bookHeight.set} current={bookHeight.current} />
       <Book
         height={bookHeight.height}
+        reports={reports}
         sleeves={feed.meta?.sleeves ?? []}
         latestByCoin={latestByCoin}
         tapeByCoin={tapeByCoin}

@@ -12,6 +12,8 @@ export type Ohlc = {
   high: number;
   low: number;
   close: number;
+  /** Quote turnover (USDT) in the bar, when the venue sent it. The risk watchdog's volume rule reads it. */
+  turnover?: number;
 };
 
 export type VenueFill = {
@@ -23,6 +25,8 @@ export type VenueFill = {
   hash?: string;
   closedPnl?: number;
   feeUsd?: number;
+  slipBps?: number;
+  risk?: "stop" | "volume";
 };
 
 export function fillKey(f: VenueFill): string {
@@ -35,7 +39,7 @@ export function candleBar(raw: { i?: unknown }): BarSize {
   return "1m";
 }
 
-export function candleOhlc(raw: { t?: unknown; o?: unknown; h?: unknown; l?: unknown; c?: unknown }): Ohlc | null {
+export function candleOhlc(raw: { t?: unknown; o?: unknown; h?: unknown; l?: unknown; c?: unknown; v?: unknown }): Ohlc | null {
   const ts = Number(raw.t);
   const close = Number(raw.c);
   if (!Number.isFinite(ts) || ts <= 0 || !Number.isFinite(close) || close <= 0) return null;
@@ -45,7 +49,8 @@ export function candleOhlc(raw: { t?: unknown; o?: unknown; h?: unknown; l?: unk
   const o = Number.isFinite(open) && open > 0 ? open : close;
   const h = Number.isFinite(high) && high > 0 ? high : Math.max(o, close);
   const l = Number.isFinite(low) && low > 0 ? low : Math.min(o, close);
-  return { ts, open: o, high: Math.max(h, o, close), low: Math.min(l, o, close), close };
+  const turnover = raw.v == null || raw.v === "" ? Number.NaN : Number(raw.v);
+  return { ts, open: o, high: Math.max(h, o, close), low: Math.min(l, o, close), close, ...(Number.isFinite(turnover) && turnover >= 0 ? { turnover } : {}) };
 }
 
 /** @deprecated use candleOhlc */
@@ -112,13 +117,13 @@ export class VenueChart {
     this.dirty = true;
   }
 
-  upsertCandle(raw: { t?: unknown; o?: unknown; h?: unknown; l?: unknown; c?: unknown; i?: unknown }) {
+  upsertCandle(raw: { t?: unknown; o?: unknown; h?: unknown; l?: unknown; c?: unknown; v?: unknown; i?: unknown }) {
     const next = candleOhlc(raw);
     if (!next) return;
     const bar = candleBar(raw);
     const map = bar === "15m" ? this.candles15m : bar === "1s" ? this.candles1s : this.candles1m;
     const prev = map.get(next.ts);
-    if (prev && prev.open === next.open && prev.high === next.high && prev.low === next.low && prev.close === next.close) return;
+    if (prev && prev.open === next.open && prev.high === next.high && prev.low === next.low && prev.close === next.close && prev.turnover === next.turnover) return;
     map.set(next.ts, next);
     this.dirty = true;
   }
@@ -155,6 +160,8 @@ export class VenueChart {
           hash: f.hash,
           closedPnl: f.closedPnl,
           feeUsd: f.feeUsd,
+          ...(f.slipBps != null ? { slipBps: f.slipBps } : {}),
+          ...(f.risk ? { risk: f.risk } : {}),
         },
       });
     }

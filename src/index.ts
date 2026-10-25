@@ -3,6 +3,7 @@ import { closedNetByCoin, readBacktestReport } from "./backtest";
 import { refreshBacktest } from "./backtest-report";
 import { createModel, describeStrategy } from "./model";
 import { hasKeys, loadSleeves } from "./sleeves";
+import { buildDailyReport, dailyLine, nextReportAt, saveDailyReport, type DailyMark } from "./daily";
 import { startServer, type SleeveView } from "./server";
 import { Trader } from "./trader";
 import type { BlockEvent, Fill, Meta, Quote, Timing } from "./types";
@@ -25,6 +26,13 @@ const meta: Meta = {
   wallet: null,
   dryRun: config.dryRun || specs.every((s) => !hasKeys(s)),
   virtual: { on: config.dryRun, toggle: !!config.adminToken, keys: specs.some(hasKeys) },
+  risk: {
+    stopPct: config.riskStopPct,
+    volumePct: config.riskVolumeRatio == null ? null : Math.round(config.riskVolumeRatio * 100),
+    maxAccountLeverage: config.maxAccountLeverage,
+    entries: config.model === "strategy" ? 1 + config.strategyMaxAdds : 1,
+    dailyHourKst: config.dailyReportHourKst >= 0 ? config.dailyReportHourKst : null,
+  },
   market: first.pair,
   startedAt: Date.now(),
   venue: config.venue,
@@ -61,6 +69,7 @@ async function startupBacktest() {
 
 let server: ReturnType<typeof startServer> | undefined;
 const starters: Array<() => void> = [];
+const dailies: Array<{ coin: string; trader: Trader }> = [];
 
 for (const spec of specs) {
   let lastErr: unknown;
@@ -122,7 +131,12 @@ for (const spec of specs) {
         meta.pair = spec.pair;
         meta.market = spec.pair;
       }
-      starters.push(() => feed.start((tick) => trader.onBlock(tick)));
+      starters.push(() => {
+        feed.start((tick) => trader.onBlock(tick));
+        // The risk watchdog keeps its own time, apart from the model's tick.
+        setInterval(() => void trader.riskTick(() => feed.nextTick()).catch((e) => console.error(`${spec.coin} risk:`, (e as Error).message)), config.riskCheckMs);
+      });
+      dailies.push({ coin: spec.coin, trader });
       console.log(`sleeve ${spec.label} ${spec.pair} ${dry ? `DRY RUN, balance $${trader.bankrollUsd.toFixed(2)} (start $${(config.bankrollUsd / specs.length).toFixed(2)} + backtest $${btUsd.toFixed(2)})` : market.address}`);
       lastErr = null;
       break;
@@ -138,6 +152,41 @@ if (!views.length) throw new Error("no sleeves started");
 
 server = startServer(meta, views);
 for (const start of starters) start();
+scheduleDaily();
+
+/** The day's report per coin at DAILY_REPORT_HOUR_KST, to the log and reports/daily.jsonl. */
+function scheduleDaily() {
+  const hour = config.dailyReportHourKst;
+  if (hour < 0) return;
+  const marks = new Map<string, { mark: DailyMark; sinceStart: boolean }>();
+  // The first mark waits for the first ticks, so a dry run's balance and Bybit's equity are in.
+  setTimeout(() => {
+    for (const d of dailies) if (!marks.has(d.coin)) marks.set(d.coin, { mark: d.trader.dailyMark(), sinceStart: true });
+  }, 30_000);
+  const arm = () => {
+    const at = nextReportAt(Date.now(), hour);
+    setTimeout(() => {
+      for (const d of dailies) {
+        const prev = marks.get(d.coin);
+        const end = d.trader.dailyMark();
+        if (!prev) {
+          marks.set(d.coin, { mark: end, sinceStart: false });
+          continue;
+        }
+        const report = buildDailyReport(d.coin, prev.mark, end, d.trader.ledger, prev.sinceStart);
+        console.log(dailyLine(report));
+        try {
+          saveDailyReport(report);
+        } catch (e) {
+          console.error(`daily report: ${(e as Error).message}`);
+        }
+        marks.set(d.coin, { mark: end, sinceStart: false });
+      }
+      arm();
+    }, Math.max(1000, at - Date.now()));
+  };
+  arm();
+}
 
 console.log(`jev-trade bybit ${config.bybitEnv} ${meta.sleeves.map((s) => s.label).join(" ")} model=${meta.model}${config.model === "jev" ? ` ${config.jevProvider}` : config.model === "strategy" ? ` 15m ${config.strategyLeverage}x (${describeStrategy()})` : ""} tick ${config.tickMs}ms price ${config.priceMs}ms quote $${config.quoteUsd} :${config.port}`);
 

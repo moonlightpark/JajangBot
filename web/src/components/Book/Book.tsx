@@ -2,15 +2,16 @@
 
 import { useMemo, useState } from "react";
 import type { BlockEvent, Meta, PricePoint, SleeveMeta } from "@/lib/types";
-import type { BacktestReport } from "@/lib/bot-types";
+import type { BacktestReport, DailyReport } from "@/lib/bot-types";
 import { backtestLots, lotSummary } from "@/lib/backtest";
 import { closedLots, tapeFills, withBalance, type TapeFill } from "@/lib/fills";
+import { leverageView } from "@/lib/limits";
 import { roePct } from "@/lib/pnl";
 import { displayCoin, fmtClock, fmtCoin, fmtDateTime, fmtPct, fmtPrice, fmtSignedUsd, fmtUsd, shortTx, SIDE_KO, txUrl } from "@/lib/format";
 import { Bone } from "@/components/Skeleton/Skeleton";
 import styles from "./Book.module.css";
 
-type Tab = "positions" | "trades" | "history";
+type Tab = "positions" | "trades" | "history" | "daily";
 
 const TRADE_CAP = 200;
 /** Three months of backtest trades on every coin fit, with room for the bot's own. */
@@ -22,6 +23,11 @@ const day = (ts: number) => new Date(ts).toISOString().slice(0, 10).replaceAll("
 function fmtSizeUsd(size: number, px: number | null | undefined): string {
   const usd = px != null && px > 0 ? size * px : null;
   return usd != null ? `${fmtSize(size)}($${Math.round(usd).toLocaleString("en-US")})` : fmtSize(size);
+}
+
+/** "$25,686", with thousands commas, for the limit bar. */
+function usdComma(n: number, d = 0): string {
+  return `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d })}`;
 }
 
 function fmtSize(size: number): string {
@@ -43,6 +49,7 @@ export default function Book({
   backtest = null,
   waiting = false,
   height,
+  reports = [],
 }: {
   sleeves: SleeveMeta[];
   latestByCoin: Record<string, BlockEvent | null>;
@@ -58,11 +65,15 @@ export default function Book({
   waiting?: boolean;
   /** Set by dragging the bar above the panel. Unset: the stylesheet's height. */
   height?: number | null;
+  /** The bot's daily reports, newest first. */
+  reports?: DailyReport[];
 }) {
   const [tab, setTab] = useState<Tab>("positions");
   const [allMarkets, setAllMarkets] = useState(false);
   const [showBacktest, setShowBacktest] = useState(true);
   const [focusedRow, setFocusedRow] = useState<string | null>(null);
+
+  const limits = useMemo(() => leverageView(latestByCoin[selected] ?? null, meta?.risk), [latestByCoin, selected, meta?.risk]);
 
   const trades = useMemo(() => {
     const rows: (TapeFill & { coin: string; round?: number })[] = [];
@@ -161,7 +172,16 @@ export default function Book({
         >
           거래기록
         </button>
-        {tab === "trades" || tab === "history" ? (
+        <button
+          type="button"
+          className={tab === "daily" ? styles.tabOn : styles.tab}
+          role="tab"
+          aria-selected={tab === "daily"}
+          onClick={() => setTab("daily")}
+        >
+          일일 보고
+        </button>
+        {tab === "trades" || tab === "history" || tab === "daily" ? (
           <span className={styles.scope}>
             <button
               type="button"
@@ -193,6 +213,27 @@ export default function Book({
       </div>
       {tab === "positions" ? (
         <div className={styles.scroller}>
+          {limits ? (
+            <div className={styles.btSummary}>
+              <span title="보유 포지션(현재가 기준) ÷ 잔고. 주문에 쓰는 레버리지(아래 표의 레버리지)는 Bybit가 묶어 두는 증거금만 정합니다.">
+                계좌 레버리지 <b>{limits.leverage.toFixed(2)}배</b>
+                {limits.maxLeverage != null ? ` (한도 ${limits.maxLeverage}배)` : ""}
+              </span>
+              <span>잔고 {usdComma(limits.equityUsd, 2)}</span>
+              <span>보유 {usdComma(limits.positionUsd)}</span>
+              {limits.limitUsd != null ? (
+                <>
+                  <span title="MAX_ACCOUNT_LEVERAGE × 현재 잔고. 잔고가 바뀌면 다음 주문 때 다시 계산합니다.">포지션 한도 {usdComma(limits.limitUsd)}</span>
+                  <span>남은 한도 {usdComma(limits.roomUsd ?? 0)}</span>
+                  <span title="한도를 진입 회차 수로 나눈 금액, 남은 한도보다 크면 남은 한도만큼. 거래소 최소 주문보다 작으면 주문하지 않습니다.">
+                    다음 주문 {usdComma(limits.nextOrderUsd ?? 0)}
+                  </span>
+                </>
+              ) : (
+                <span>포지션 한도 없음 (MAX_ACCOUNT_LEVERAGE 미설정)</span>
+              )}
+            </div>
+          ) : null}
           <table className={styles.table}>
             <thead>
               <tr>
@@ -363,6 +404,63 @@ export default function Book({
             </table>
           </div>
         )
+      ) : tab === "daily" ? (
+        reports.length === 0 ? (
+          <div className={styles.empty}>
+            아직 일일 보고가 없습니다. 봇 설정 DAILY_REPORT_HOUR_KST(예: 23)를 켜면 매일 그 시각(한국시간)에 하루 마감 보고가 쌓입니다.
+          </div>
+        ) : (
+          <div className={styles.scroller}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>날짜</th>
+                  <th>종목</th>
+                  <th>시작 잔고</th>
+                  <th>마감 잔고</th>
+                  <th>손익</th>
+                  <th>실현손익</th>
+                  <th>수수료</th>
+                  <th>진입</th>
+                  <th>청산</th>
+                  <th title="리스크 감시(코드)가 낸 청산 수">리스크 청산</th>
+                  <th title="판단 가격 대비 체결가, 평균 / 최대. +는 불리한 쪽">슬리피지</th>
+                  <th>마감 포지션</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reports
+                  .filter((r) => allMarkets || r.coin === selected)
+                  .map((r) => {
+                    const color = r.pnlUsd >= 0 ? "var(--pnl-pos)" : "var(--pnl-neg)";
+                    return (
+                      <tr key={`${r.coin}|${r.date}|${r.to}`} onClick={() => onSelect(r.coin)}>
+                        <td title={`${fmtDateTime(r.from)} ~ ${fmtDateTime(r.to)}${r.sinceStart ? " (봇 시작 이후만)" : ""}`}>
+                          {r.date}
+                          {r.sinceStart ? " *" : ""}
+                        </td>
+                        <td>{displayCoin(r.coin)}</td>
+                        <td>{fmtUsd(r.startBalance, 2)}</td>
+                        <td>{fmtUsd(r.endBalance, 2)}</td>
+                        <td style={{ color }}>
+                          {fmtSignedUsd(r.pnlUsd, 2)} ({r.pnlPct > 0 ? "+" : ""}{r.pnlPct}%)
+                        </td>
+                        <td>{fmtSignedUsd(r.realizedUsd, 2)}</td>
+                        <td>{fmtUsd(r.feesUsd, 2)}</td>
+                        <td>{r.entries}</td>
+                        <td>{r.closes}</td>
+                        <td>{r.riskCloses}</td>
+                        <td>{r.avgSlipBps != null ? `${r.avgSlipBps}bp / ${r.maxSlipBps}bp` : "-"}</td>
+                        <td>
+                          {r.open ? `${SIDE_KO[r.open.side] ?? r.open.side} ${fmtSize(r.open.size)} @ ${fmtPrice(r.open.entryPx)}` : "없음"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        )
       ) : waiting && trades.length === 0 ? (
         <div className={styles.scroller} aria-busy="true" aria-label="체결 불러오는 중">
           <table className={styles.table}>
@@ -374,6 +472,7 @@ export default function Book({
                 <th>유형</th>
                 <th>체결가</th>
                 <th>수량</th>
+                <th>슬리피지</th>
                 <th>거래 ID</th>
               </tr>
             </thead>
@@ -386,6 +485,7 @@ export default function Book({
                   <td><Bone w={44} h={10} /></td>
                   <td><Bone w={56} h={10} /></td>
                   <td><Bone w={48} h={10} /></td>
+                  <td><Bone w={40} h={10} /></td>
                   <td><Bone w={52} h={10} /></td>
                 </tr>
               ))}
@@ -405,13 +505,14 @@ export default function Book({
                 <th>유형</th>
                 <th>체결가</th>
                 <th>수량</th>
+                <th>슬리피지</th>
                 <th>거래 ID</th>
               </tr>
             </thead>
             <tbody>
               {trades.map((fill) => {
                 const sideColor = fill.side === "buy" ? "var(--buy-ink)" : "var(--sell-ink)";
-                const action = fill.round != null ? `${fill.round}차 진입` : fill.dir === "open" ? "진입" : fill.dir === "close" ? "청산" : fill.dir === "flip" ? "전환" : "체결";
+                const action = fill.round != null ? `${fill.round}차 진입` : fill.risk ? (fill.risk === "volume" ? "거래량 청산" : "리스크 손절") : fill.dir === "open" ? "진입" : fill.dir === "close" ? "청산" : fill.dir === "flip" ? "전환" : "체결";
                 return (
                   <tr key={`${fill.coin}|${fill.key}`} onClick={() => onSelect(fill.coin)}>
                     <td title={fmtClock(fill.ts, true)}>{fmtDateTime(fill.ts)}</td>
@@ -420,6 +521,12 @@ export default function Book({
                     <td style={{ color: sideColor }}>{action}</td>
                     <td>{fmtPrice(fill.price)}</td>
                     <td>{fmtSize(fill.size)}</td>
+                    <td
+                      style={fill.slipBps != null && fill.slipBps > 0 ? { color: "var(--pnl-neg)" } : undefined}
+                      title="판단한 순간의 가격(중간가) 대비 체결가. +는 불리하게(더 비싸게 사거나 더 싸게 팔아) 체결된 것입니다. 1bp는 0.01%입니다."
+                    >
+                      {fill.slipBps != null ? `${fill.slipBps > 0 ? "+" : ""}${fill.slipBps.toFixed(1)}bp` : "-"}
+                    </td>
                     <td>
                       {fill.round != null ? (
                         <span className={styles.btTag} title="봇이 시작할 때 백테스트에서 이어받은 포지션의 진입입니다. 백테스트(1분 단위) 기준 시각과 가격입니다.">

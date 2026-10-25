@@ -44,6 +44,12 @@ export interface Fill {
   feeUsd?: number;
   closedPnl?: number;
   dir?: "open" | "close" | "flip";
+  /** Price the order was decided at (the tick's mid). */
+  refPx?: number;
+  /** Fill against `refPx` in bps, positive when it cost us (bought higher or sold lower). */
+  slipBps?: number;
+  /** Closed by the risk watchdog, not the model. */
+  risk?: "stop" | "volume";
 }
 
 /** Compact tape print. Candles carry o/h/l/c. Fills sit on this series. */
@@ -64,6 +70,8 @@ export interface PricePoint {
     hash?: string;
     closedPnl?: number;
     feeUsd?: number;
+    slipBps?: number;
+    risk?: "stop" | "volume";
   };
 }
 
@@ -86,6 +94,11 @@ export interface Decision {
   late: boolean;
   /** A close of only this share of the position (partial take profit). Left out: all of it. */
   closeFraction?: number;
+  /**
+   * The risk watchdog's close, made by code on its own timer, not by the model. The
+   * dashboard must say so, so the page never implies the model (or Jev) made this call.
+   */
+  risk?: { rule: "stop" | "volume"; reason: string };
 }
 
 export interface Position {
@@ -177,6 +190,18 @@ export interface Meta {
    * `keys` is false when no coin has a Bybit key, so turning it off cannot trade for real.
    */
   virtual?: { on: boolean; toggle: boolean; keys: boolean };
+  /**
+   * The risk watchdog and the size cap, from .env. Null means off. When either rule is on,
+   * code can close a position apart from the decider, and the header says so.
+   */
+  risk?: {
+    stopPct: number | null;
+    volumePct: number | null;
+    maxAccountLeverage: number | null;
+    /** Entries one position may take (1 + adds). MAX_ACCOUNT_LEVERAGE splits over them. */
+    entries: number;
+    dailyHourKst: number | null;
+  };
   market: string;
   startedAt: number;
   venue: string;
@@ -218,6 +243,8 @@ export interface BacktestTrade {
   maxAdversePct: number;
   /** A partial take profit: `size` of the position closed, the rest stayed open as a later trade. */
   partial?: boolean;
+  /** Closed by the risk watchdog, not the strategy: the hard stop or the volume rule. */
+  risk?: "stop" | "volume";
 }
 
 /** GET /backtest: the last `bun run backtest` run (MODEL=strategy rules on past 1m candles). */
@@ -263,4 +290,28 @@ export interface BacktestOpen {
    * differs from the position in the list. The dashboard lists them under 체결.
    */
   entries?: { ts: number; px: number; size: number; round?: number }[];
+}
+
+/** The bot's day, closed at DAILY_REPORT_HOUR_KST. GET /reports. */
+export interface DailyReport {
+  coin: string;
+  /** KST date the day closed on. */
+  date: string;
+  from: number;
+  to: number;
+  /** The bot started inside this day, so the report covers only from then. */
+  sinceStart?: boolean;
+  startBalance: number;
+  endBalance: number;
+  pnlUsd: number;
+  pnlPct: number;
+  realizedUsd: number;
+  feesUsd: number;
+  entries: number;
+  closes: number;
+  /** Closes the risk watchdog made. */
+  riskCloses: number;
+  avgSlipBps: number | null;
+  maxSlipBps: number | null;
+  open: { side: "long" | "short"; size: number; entryPx: number } | null;
 }

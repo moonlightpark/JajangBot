@@ -1,7 +1,7 @@
 /**
  * MODEL=strategy backtest on Bybit 1m candles.
  *
- *   bun run backtest                     # last 3 months, COINS from .env
+ *   bun run backtest                     # from BACKTEST_FROM, else the last 3 months; COINS from .env
  *   bun run backtest --months=6
  *   bun run backtest --from=2026-07-01 --coins=BTC,ETH
  *
@@ -21,6 +21,7 @@ function startTs(): number {
     if (!Number.isFinite(t)) throw new Error(`--from must be a date like 2026-07-10, got ${from}`);
     return t;
   }
+  if (config.backtestFrom != null && !arg("months")) return config.backtestFrom;
   const months = Number(arg("months") ?? "3");
   if (!(months > 0)) throw new Error("--months must be a positive number");
   return monthsAgo(months);
@@ -56,6 +57,7 @@ for (const { coin, leverage, bars, result: r } of runs) {
     `  ${leverage}x  trades ${done.length}  win ${done.length ? Math.round((wins / done.length) * 100) : 0}%  pnl ${usd(r.pnlUsd)}  fees ${usd(r.feesUsd)}  max drawdown ${usd(r.maxDrawdownUsd)}  missed entries ${r.missedEntries}` +
     (adds ? `  adds ${adds}` : "") +
     (partials ? `  partial take profits ${partials}` : "") +
+    (r.riskCloses ? `  risk closes ${r.riskCloses}` : "") +
     (open ? `  open ${open.side} @ ${open.entryPx} (${usd(open.pnlUsd)})` : "") +
     (liqRisk ? `  liquidation risk (isolated) ${liqRisk}` : ""),
   );

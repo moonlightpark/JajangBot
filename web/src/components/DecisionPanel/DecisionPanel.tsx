@@ -107,6 +107,9 @@ export default function DecisionPanel({ latest, waiting = false }: DecisionPanel
               <span className={styles.metaLine}>{decision.latencyMs} ms</span>
             ) : null}
           </div>
+          {decided && decision?.risk ? (
+            <p className={styles.riskNote}>리스크 감시(코드)가 낸 청산입니다. {decision.risk.reason}</p>
+          ) : null}
 
           <div className={styles.bars}>
             <BarRow

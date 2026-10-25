@@ -56,7 +56,7 @@ test("ticker maps onto the asset context Jev reads", () => {
   expect(ctx.prevDayPx).toBe(90);
   expect(ctx.dayNtlVlm).toBe(1000);
   expect(bybitCandle(["1700000000000", "1", "2", "0.5", "1.5", "10", "15"], "1m")).toEqual({
-    t: 1700000000000, o: "1", h: "2", l: "0.5", c: "1.5", i: "1m",
+    t: 1700000000000, o: "1", h: "2", l: "0.5", c: "1.5", v: "15", i: "1m",
   });
 });
 

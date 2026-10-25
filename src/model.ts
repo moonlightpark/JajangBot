@@ -5,6 +5,7 @@ import { clampLeverage, leverageRungs, liveIntent, parseLeverage, quoteAction, t
 import type { Ohlc } from "./chart";
 import { closedBars, firstPriceRestart, MAGINGA, magingaLines, rearm, strategyCall, swingLevel, trackEntries, withLiveBar, type EntryLog, type MagingaParams, type StrategyRules } from "./strategy";
 import type { Action, BacktestOpen, Side, StrategyLevels } from "./types";
+import type { RiskRule } from "./risk";
 
 /** What the model sees. Compact, relative, human-readable. */
 export interface TradeState {
@@ -81,6 +82,8 @@ export interface ModelDecision {
   levels?: StrategyLevels;
   /** A close of only this share of the position (partial take profit). Left out: all of it. */
   closeFraction?: number;
+  /** Set only on the risk watchdog's close, which code makes apart from the model. */
+  risk?: { rule: RiskRule; reason: string };
 }
 
 export interface Model {
@@ -88,6 +91,8 @@ export interface Model {
   decide(state: TradeState): Promise<ModelDecision>;
   /** Dry run: start out holding the backtest's open position, entry count and all. */
   carry?(open: BacktestOpen): void;
+  /** The risk watchdog closed `side`. A rule model waits before entering that side again. */
+  riskClosed?(side: "long" | "short"): void;
 }
 
 /** Book, tape, and the open position. Wallet fills and lifetime PnL stay off this object. */
@@ -479,6 +484,11 @@ export class StrategyModel implements Model {
       ...(o.level != null ? { level: o.level } : {}),
       ...(o.tpPx != null ? { tpPx: o.tpPx } : {}),
     };
+  }
+
+  /** Same as after its own stop: no new entry that way until the signal clears. */
+  riskClosed(side: "long" | "short") {
+    this.blocked = side;
   }
 
   async decide(state: TradeState): Promise<ModelDecision> {

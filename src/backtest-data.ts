@@ -38,7 +38,7 @@ async function fetchMinutes(base: string, symbol: string, from: number, to: numb
       }
     }
     for (const row of r?.list ?? []) {
-      out.push({ ts: num(row[0]), open: num(row[1]), high: num(row[2]), low: num(row[3]), close: num(row[4]) });
+      out.push({ ts: num(row[0]), open: num(row[1]), high: num(row[2]), low: num(row[3]), close: num(row[4]), turnover: num(row[6]) });
     }
   }
   return out;
@@ -46,7 +46,8 @@ async function fetchMinutes(base: string, symbol: string, from: number, to: numb
 
 /** 1m candles in [from, to), from the cache plus whatever is missing on either side. */
 export async function minutes(base: string, symbol: string, from: number, to: number): Promise<Ohlc[]> {
-  const file = Bun.file(`.backtest-cache/${symbol}-1m.json`);
+  // v2 carries turnover for the volume rule. The old cache had none, so it is fetched again once.
+  const file = Bun.file(`.backtest-cache/${symbol}-1m-v2.json`);
   let bars: Ohlc[] = (await file.exists()) ? await file.json() : [];
   const first = bars[0]?.ts, last = bars.at(-1)?.ts;
   const fresh: Ohlc[] = [];

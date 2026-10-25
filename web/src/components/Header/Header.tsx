@@ -23,7 +23,7 @@ export interface HeaderProps {
   /** Bot API base, for the 가상매매 switch. */
   apiUrl: string;
   /** Null until meta arrives. */
-  meta: Pick<Meta, "dryRun" | "virtual" | "network" | "startedAt"> | null;
+  meta: Pick<Meta, "dryRun" | "virtual" | "network" | "startedAt" | "risk"> | null;
 }
 
 function Score({
@@ -48,6 +48,17 @@ function Score({
   );
 }
 
+/** What the risk watchdog closes on, or null when it is off. It is code, apart from the decider. */
+function riskTitle(meta: HeaderProps["meta"]): string | null {
+  const r = meta?.risk;
+  if (!r || (r.stopPct == null && r.volumePct == null)) return null;
+  const rules = [
+    r.stopPct != null ? `평균 진입가 대비 ${r.stopPct}% 손실이면 전부 청산` : null,
+    r.volumePct != null ? `6시간 거래대금이 24시간 평균의 ${r.volumePct}% 아래면 전부 청산` : null,
+  ].filter(Boolean);
+  return `리스크 감시(코드)가 판단과 별개로 청산합니다: ${rules.join(", ")}.`;
+}
+
 export default function Header({ connection, balance, unrealized, realized, backtest = null, backtestOpen = null, mode, decider, apiUrl, meta }: HeaderProps) {
   const live = connection === "live";
   const label = !live ? "연결 끊김" : mode ? mode.label : "연결 중";
@@ -67,6 +78,11 @@ export default function Header({ connection, balance, unrealized, realized, back
         <span>{label}</span>
         {live && mode ? <span className={styles.statusDetail}>{mode.detail}</span> : null}
         {live && decider ? <span className={styles.decider} data-jev={decider === "Jev" ? "true" : "false"}>{decider} 판단</span> : null}
+        {live && riskTitle(meta) ? (
+          <span className={styles.riskChip} title={riskTitle(meta)!}>
+            리스크 감시
+          </span>
+        ) : null}
       </span>
       {live ? <VirtualSwitch apiUrl={apiUrl} meta={meta} /> : null}
       <span className={styles.scores}>

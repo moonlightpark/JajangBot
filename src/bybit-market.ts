@@ -1,8 +1,10 @@
 import { FillPnlBook, type VenueAccount } from "./account";
-import { quotePrice, snapToStep, stepDecimals, takerPrice } from "./book";
+import { orderSize } from "./backtest";
+import { quotePrice, slipBps, snapToStep, stepDecimals, takerPrice } from "./book";
 import { BybitClient, BybitError, bybitHosts, bybitSymbol, publicGet } from "./bybit-api";
 import type { BybitFeed } from "./bybit-feed";
 import { config } from "./config";
+import type { RiskRule } from "./risk";
 import type { SleeveConfig } from "./sleeves";
 import type { Book, Fill, Quote, Side } from "./types";
 import type { VenueFillPrint, VenueMarket } from "./venue";
@@ -107,6 +109,11 @@ export class BybitMarket implements VenueMarket {
   private lastPrice = 0;
   private lastSize = 0;
   private lastReduce = false;
+  /** Per Bybit order id: the mid it was decided at (for slippage) and the risk rule that sent it. */
+  private refs = new Map<string, { px: number; risk?: RiskRule }>();
+  private nextRef: { px: number; risk?: RiskRule } | null = null;
+  /** The server-side stop last written to Bybit, so an unchanged one is not sent again. */
+  private stopSent: number | null = null;
   private ws: WebSocket | null = null;
   private ping: ReturnType<typeof setInterval> | null = null;
 
@@ -141,11 +148,9 @@ export class BybitMarket implements VenueMarket {
   }
 
   /** QUOTE_USD in coin, raised to the venue minimum so the order is not rejected. */
-  quoteSize(mid: number): number {
-    if (!(mid > 0)) return 0;
-    const want = snapToStep(config.quoteUsd / mid, this.qtyStep, "floor");
-    const floor = Math.max(this.minQty, snapToStep(this.minNotional / mid, this.qtyStep, "ceil"));
-    return Math.max(want, floor);
+  /** `baseUsd` (QUOTE_USD by default) of coin, shrunk to `roomUsd` (MAX_ACCOUNT_LEVERAGE). Same rule as the backtest. */
+  quoteSize(mid: number, roomUsd?: number, baseUsd?: number): number {
+    return orderSize(mid, { quoteUsd: config.quoteUsd, qtyStep: this.qtyStep, minQty: this.minQty, minNotional: this.minNotional }, roomUsd, baseUsd);
   }
 
   async init() {
@@ -264,6 +269,8 @@ export class BybitMarket implements VenueMarket {
         dir,
       });
     }
+    const ref = e.orderId ? this.refs.get(e.orderId) : undefined;
+    const slip = ref ? slipBps(side, price, ref.px) : null;
     const print = {
       ts: Number.isFinite(ts) && ts > 0 ? ts : Date.now(),
       side,
@@ -272,6 +279,8 @@ export class BybitMarket implements VenueMarket {
       dir,
       ...(Number.isFinite(closedPnl) ? { closedPnl } : {}),
       ...(Number.isFinite(feeUsd) ? { feeUsd } : {}),
+      ...(slip != null ? { slipBps: slip } : {}),
+      ...(ref?.risk ? { risk: ref.risk } : {}),
     };
     this.fillPrints.push(print);
     if (this.feed.chart.addFill(print)) this.onVenueFill?.(print);
@@ -290,6 +299,8 @@ export class BybitMarket implements VenueMarket {
       size: fill.size,
       ...(fill.dir ? { dir: fill.dir } : {}),
       ...(fill.feeUsd != null && Number.isFinite(fill.feeUsd) ? { feeUsd: fill.feeUsd } : {}),
+      ...(fill.slipBps != null ? { slipBps: fill.slipBps } : {}),
+      ...(fill.risk ? { risk: fill.risk } : {}),
     };
     if (this.feed.chart.addFill(print)) this.onVenueFill?.(print);
   }
@@ -373,7 +384,8 @@ export class BybitMarket implements VenueMarket {
   }
 
   /** Entries rest PostOnly. Exits cross as IOC so they do not wait on a taker. */
-  async send(side: Side, sizeSz: number, book: Book, cancel: number[], reduceOnly = false, taker = false): Promise<Quote> {
+  async send(side: Side, sizeSz: number, book: Book, cancel: number[], reduceOnly = false, taker = false, risk?: RiskRule): Promise<Quote> {
+    this.nextRef = { px: book.mid, ...(risk ? { risk } : {}) };
     const size = snapToStep(sizeSz, this.qtyStep, "floor");
     const base: QuoteBase = { side, reduceOnly, capped: false, taker };
     if (!(size > 0)) {
@@ -416,6 +428,7 @@ export class BybitMarket implements VenueMarket {
     }
     try {
       const r = await this.client!.post<{ orderId?: string }>("/v5/order/create", this.order(base.side, size, px, base.reduceOnly, "IOC"));
+      this.noteRef(r.orderId);
       // IOC fills arrive on the execution stream. An unfilled IOC leaves nothing behind.
       return { ...base, price: px, size, txHash: null, cancel, status: "placed", orderId: r.orderId ? this.localId(r.orderId) : null };
     } catch (e) {
@@ -449,6 +462,7 @@ export class BybitMarket implements VenueMarket {
           });
           this.lastPrice = px;
           this.lastSize = size;
+          this.noteRef(this.toExchange.get(id));
           return { ...base, price: px, size, txHash: null, cancel: [], status: "placed", orderId: id };
         } catch {
           // Filled or gone between ticks. Place a fresh quote below.
@@ -461,6 +475,7 @@ export class BybitMarket implements VenueMarket {
       this.lastOid = null;
 
       const r = await this.client!.post<{ orderId?: string }>("/v5/order/create", this.order(side, size, px, reduceOnly, "PostOnly"));
+      this.noteRef(r.orderId);
       if (!r.orderId) {
         this.forgetResting();
         return { ...base, price: px, size, txHash: null, cancel: ids, status: "reverted", orderId: null };
@@ -476,6 +491,38 @@ export class BybitMarket implements VenueMarket {
       this.warn("quote", e);
       return { ...base, price: px, size, txHash: null, cancel, status: "reverted", orderId: this.lastOid };
     }
+  }
+
+  private noteRef(orderId: string | undefined) {
+    if (!orderId || !this.nextRef) return;
+    this.refs.set(orderId, this.nextRef);
+    if (this.refs.size > 500) this.refs.delete(this.refs.keys().next().value!);
+  }
+
+  /**
+   * The risk watchdog's server-side stop: a full-position stop loss on Bybit at `px`, so the
+   * position still closes if this bot is down. null clears it. No-op in a dry run.
+   */
+  async setStopLoss(px: number | null): Promise<void> {
+    if (!this.client) return;
+    const snapped = px == null ? null : snapToStep(px, this.tickSize, "round");
+    if (snapped === this.stopSent) return;
+    try {
+      await this.client.post("/v5/position/trading-stop", {
+        category: "linear", symbol: this.symbol, positionIdx: 0, tpslMode: "Full", slTriggerBy: "MarkPrice",
+        stopLoss: snapped == null ? "0" : snapped.toFixed(stepDecimals(this.tickSize)),
+      });
+      this.stopSent = snapped;
+      console.log(`${this.label} risk: Bybit stop loss ${snapped == null ? "cleared" : `set at ${snapped}`}`);
+    } catch (e) {
+      // 34040: not modified. Already there.
+      if (e instanceof BybitError && e.retCode === 34040) this.stopSent = snapped;
+      else this.warn("stop loss", e);
+    }
+  }
+
+  get bookAt(): number {
+    return this.feed.bookAt;
   }
 
   /** Pull the standing quote. A resting order Jev no longer wants still gets hit. */
