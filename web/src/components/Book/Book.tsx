@@ -105,8 +105,8 @@ export default function Book({
     () => sleeves.map((s) => s.coin).filter((c) => allMarkets || c === selected),
     [allMarkets, selected, sleeves],
   );
-  // The balance live trading started from: the dry run's start plus the backtest's closed PnL.
-  // Left out with a wallet, which reports no start.
+  // The money trading started with (BANKROLL_USD share), before the backtest. Left out with a
+  // wallet, which reports no start.
   const tradeStart = useMemo(() => {
     const sleeve = sleeves.find((s) => s.coin === selected);
     if (sleeve?.startUsd == null) return null;
@@ -224,9 +224,9 @@ export default function Book({
             <div className={styles.btSummary}>
               {tradeStart ? (
                 <span
-                  title={`가상매매를 시작할 때의 잔고. 시작 자금 ${usdComma(tradeStart.startUsd, 2)}에 백테스트 손익 ${tradeStart.backtestUsd < 0 ? "-" : "+"}${usdComma(Math.abs(tradeStart.backtestUsd), 2)}를 더한 금액입니다.`}
+                  title={`트레이딩을 시작한 자금(BANKROLL_USD). 백테스트 손익 ${tradeStart.backtestUsd < 0 ? "-" : "+"}${usdComma(Math.abs(tradeStart.backtestUsd), 2)}는 포함하지 않습니다.`}
                 >
-                  시작 잔고 {usdComma(tradeStart.startUsd + tradeStart.backtestUsd, 2)}
+                  시작 잔고 {usdComma(tradeStart.startUsd, 2)}
                 </span>
               ) : null}
               <span title="보유 포지션(현재가 기준) ÷ 잔고. 주문에 쓰는 레버리지(아래 표의 레버리지)는 Bybit가 묶어 두는 증거금만 정합니다.">
