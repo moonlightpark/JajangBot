@@ -105,6 +105,13 @@ export default function Book({
     () => sleeves.map((s) => s.coin).filter((c) => allMarkets || c === selected),
     [allMarkets, selected, sleeves],
   );
+  // The balance live trading started from: the dry run's start plus the backtest's closed PnL.
+  // Left out with a wallet, which reports no start.
+  const tradeStart = useMemo(() => {
+    const sleeve = sleeves.find((s) => s.coin === selected);
+    if (sleeve?.startUsd == null) return null;
+    return { startUsd: sleeve.startUsd, backtestUsd: sleeve.backtestUsd ?? 0 };
+  }, [sleeves, selected]);
   const btLots = useMemo(() => backtestLots(backtest, scopeCoins), [backtest, scopeCoins]);
   const btSummary = useMemo(() => lotSummary(btLots), [btLots]);
 
@@ -215,6 +222,13 @@ export default function Book({
         <div className={styles.scroller}>
           {limits ? (
             <div className={styles.btSummary}>
+              {tradeStart ? (
+                <span
+                  title={`가상매매를 시작할 때의 잔고. 시작 자금 ${usdComma(tradeStart.startUsd, 2)}에 백테스트 손익 ${tradeStart.backtestUsd < 0 ? "-" : "+"}${usdComma(Math.abs(tradeStart.backtestUsd), 2)}를 더한 금액입니다.`}
+                >
+                  시작 잔고 {usdComma(tradeStart.startUsd + tradeStart.backtestUsd, 2)}
+                </span>
+              ) : null}
               <span title="보유 포지션(현재가 기준) ÷ 잔고. 주문에 쓰는 레버리지(아래 표의 레버리지)는 Bybit가 묶어 두는 증거금만 정합니다.">
                 계좌 레버리지 <b>{limits.leverage.toFixed(2)}배</b>
                 {limits.maxLeverage != null ? ` (한도 ${limits.maxLeverage}배)` : ""}
